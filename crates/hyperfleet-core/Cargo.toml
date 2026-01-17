@@ -1,0 +1,19 @@
+[package]
+name = "hyperfleet-core"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+authors.workspace = true
+description = "Hyperfleet core business logic"
+
+[dependencies]
+hyperfleet-common.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

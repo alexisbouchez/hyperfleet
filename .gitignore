@@ -1,0 +1,29 @@
+# Rust build artifacts
+/target/
+**/target/
+
+# Cargo lock for libraries (keep for binaries)
+# Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Hyperinit build artifacts
+hyperinit/hyperinit
+hyperinit/src/*.o
+
+# Data directories
+/data/
+*.db
+
+# Logs
+*.log
+
+# palm_code (separate repo)
+palm_code/

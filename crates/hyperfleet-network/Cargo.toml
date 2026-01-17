@@ -1,0 +1,17 @@
+[package]
+name = "hyperfleet-network"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+authors.workspace = true
+description = "Hyperfleet network management (TAP devices, bridges)"
+
+[dependencies]
+hyperfleet-common.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+nix.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

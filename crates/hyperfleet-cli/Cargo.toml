@@ -1,0 +1,21 @@
+[package]
+name = "hyperfleet-cli"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+authors.workspace = true
+description = "Hyperfleet CLI client (hf)"
+
+[[bin]]
+name = "hf"
+path = "src/main.rs"
+
+[dependencies]
+hyperfleet-common.workspace = true
+clap.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+urlencoding = "2.1"

@@ -1,0 +1,76 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/hyperfleet-common",
+    "crates/hyperfleet-db",
+    "crates/hyperfleet-network",
+    "crates/hyperfleet-volume",
+    "crates/hyperfleet-vmm",
+    "crates/hyperfleet-core",
+    "crates/hyperfleet-api",
+    "crates/hyperfleet-cli",
+    "crates/hyperfleet-daemon",
+    "crates/hypergate",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0"
+authors = ["Alexis Bouchez <alexbcz@proton.me>"]
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.43", features = ["full"] }
+async-trait = "0.1"
+
+# Web framework
+axum = { version = "0.8", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# ID generation
+nanoid = "0.4"
+
+# Process management
+nix = { version = "0.29", features = ["process", "signal", "net"] }
+
+# HTTP proxy
+hyper = { version = "1.5", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+
+# Internal crates
+hyperfleet-common = { path = "crates/hyperfleet-common" }
+hyperfleet-db = { path = "crates/hyperfleet-db" }
+hyperfleet-network = { path = "crates/hyperfleet-network" }
+hyperfleet-volume = { path = "crates/hyperfleet-volume" }
+hyperfleet-vmm = { path = "crates/hyperfleet-vmm" }
+hyperfleet-core = { path = "crates/hyperfleet-core" }
+hyperfleet-api = { path = "crates/hyperfleet-api" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

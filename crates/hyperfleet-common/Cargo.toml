@@ -1,0 +1,14 @@
+[package]
+name = "hyperfleet-common"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+authors.workspace = true
+description = "Hyperfleet common types, traits, and error definitions"
+
+[dependencies]
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+nanoid.workspace = true

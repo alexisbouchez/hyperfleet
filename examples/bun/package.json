@@ -1,0 +1,12 @@
+{
+  "name": "hyperfleet-bun-example",
+  "version": "1.0.0",
+  "description": "Example of using Hyperfleet with Bun",
+  "type": "module",
+  "scripts": {
+    "start": "bun run index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0"
+  }
+}
