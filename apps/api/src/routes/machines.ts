@@ -1,0 +1,275 @@
+import { Elysia, t } from "elysia";
+import type { MachineService } from "../services/machines";
+import type { MachineStatus } from "@hyperfleet/worker/database";
+
+const machineStatusEnum = t.Union([
+  t.Literal("pending"),
+  t.Literal("starting"),
+  t.Literal("running"),
+  t.Literal("paused"),
+  t.Literal("stopping"),
+  t.Literal("stopped"),
+  t.Literal("failed"),
+]);
+
+const networkConfig = t.Object({
+  tap_device: t.Optional(t.String()),
+  tap_ip: t.Optional(t.String()),
+  guest_ip: t.Optional(t.String()),
+  guest_mac: t.Optional(t.String()),
+});
+
+const machineResponse = t.Object({
+  id: t.String(),
+  name: t.String(),
+  status: machineStatusEnum,
+  vcpu_count: t.Number(),
+  mem_size_mib: t.Number(),
+  kernel_image_path: t.String(),
+  kernel_args: t.Nullable(t.String()),
+  rootfs_path: t.Nullable(t.String()),
+  network: t.Nullable(networkConfig),
+  pid: t.Nullable(t.Number()),
+  created_at: t.String(),
+  updated_at: t.String(),
+});
+
+const errorResponse = t.Object({
+  error: t.String(),
+  message: t.String(),
+});
+
+const execResponse = t.Object({
+  exit_code: t.Number(),
+  stdout: t.String(),
+  stderr: t.String(),
+});
+
+export const machineRoutes = (machineService: MachineService) =>
+  new Elysia({ prefix: "/machines", tags: ["machines"] })
+    // GET /machines - List all machines
+    .get(
+      "/",
+      async ({ query }) => {
+        return machineService.list(query.status as MachineStatus | undefined);
+      },
+      {
+        query: t.Object({
+          status: t.Optional(machineStatusEnum),
+        }),
+        response: t.Array(machineResponse),
+        detail: {
+          summary: "List machines",
+          description: "List all machines, optionally filtered by status",
+        },
+      }
+    )
+
+    // POST /machines - Create a new machine
+    .post(
+      "/",
+      async ({ body, set }) => {
+        const machine = await machineService.create(body);
+        set.status = 201;
+        return machine;
+      },
+      {
+        body: t.Object({
+          name: t.String({ minLength: 1, description: "Machine name" }),
+          vcpu_count: t.Number({ minimum: 1, description: "Number of vCPUs" }),
+          mem_size_mib: t.Number({ minimum: 128, description: "Memory in MiB" }),
+          kernel_image_path: t.String({ minLength: 1, description: "Path to kernel image" }),
+          kernel_args: t.Optional(t.String({ description: "Kernel boot arguments" })),
+          rootfs_path: t.Optional(t.String({ description: "Path to root filesystem image" })),
+          network: t.Optional(t.Object({
+            tap_device: t.Optional(t.String({ description: "TAP device name" })),
+            tap_ip: t.Optional(t.String({ description: "TAP device IP address" })),
+            guest_ip: t.Optional(t.String({ description: "Guest VM IP address" })),
+            guest_mac: t.Optional(t.String({ description: "Guest VM MAC address" })),
+          }, { description: "Network configuration for internet access" })),
+        }),
+        response: {
+          201: machineResponse,
+          400: errorResponse,
+        },
+        detail: {
+          summary: "Create machine",
+          description: "Create a new machine with the specified configuration",
+        },
+      }
+    )
+
+    // GET /machines/:id - Get machine by ID
+    .get(
+      "/:id",
+      async ({ params, set }) => {
+        const machine = await machineService.get(params.id);
+        if (!machine) {
+          set.status = 404;
+          return { error: "not_found", message: "Machine not found" };
+        }
+        return machine;
+      },
+      {
+        params: t.Object({
+          id: t.String({ description: "Machine ID" }),
+        }),
+        response: {
+          200: machineResponse,
+          404: errorResponse,
+        },
+        detail: {
+          summary: "Get machine",
+          description: "Get details of a specific machine by ID",
+        },
+      }
+    )
+
+    // DELETE /machines/:id - Delete a machine
+    .delete(
+      "/:id",
+      async ({ params, set }) => {
+        const machine = await machineService.get(params.id);
+        if (!machine) {
+          set.status = 404;
+          return { error: "not_found", message: "Machine not found" };
+        }
+
+        if (machine.status === "running" || machine.status === "starting") {
+          await machineService.stop(params.id);
+        }
+
+        await machineService.delete(params.id);
+        set.status = 204;
+      },
+      {
+        params: t.Object({
+          id: t.String({ description: "Machine ID" }),
+        }),
+        response: {
+          204: t.Void(),
+          404: errorResponse,
+        },
+        detail: {
+          summary: "Delete machine",
+          description: "Delete a machine. If running, it will be stopped first.",
+        },
+      }
+    )
+
+    // POST /machines/:id/start - Start a machine
+    .post(
+      "/:id/start",
+      async ({ params, set }) => {
+        const machine = await machineService.start(params.id);
+        if (!machine) {
+          set.status = 404;
+          return { error: "not_found", message: "Machine not found" };
+        }
+        return machine;
+      },
+      {
+        params: t.Object({
+          id: t.String({ description: "Machine ID" }),
+        }),
+        response: {
+          200: machineResponse,
+          404: errorResponse,
+        },
+        detail: {
+          summary: "Start machine",
+          description: "Start a stopped or pending machine",
+        },
+      }
+    )
+
+    // POST /machines/:id/stop - Stop a machine
+    .post(
+      "/:id/stop",
+      async ({ params, set }) => {
+        const machine = await machineService.stop(params.id);
+        if (!machine) {
+          set.status = 404;
+          return { error: "not_found", message: "Machine not found" };
+        }
+        return machine;
+      },
+      {
+        params: t.Object({
+          id: t.String({ description: "Machine ID" }),
+        }),
+        response: {
+          200: machineResponse,
+          404: errorResponse,
+        },
+        detail: {
+          summary: "Stop machine",
+          description: "Stop a running machine gracefully",
+        },
+      }
+    )
+
+    // POST /machines/:id/restart - Restart a machine
+    .post(
+      "/:id/restart",
+      async ({ params, set }) => {
+        const machine = await machineService.restart(params.id);
+        if (!machine) {
+          set.status = 404;
+          return { error: "not_found", message: "Machine not found" };
+        }
+        return machine;
+      },
+      {
+        params: t.Object({
+          id: t.String({ description: "Machine ID" }),
+        }),
+        response: {
+          200: machineResponse,
+          404: errorResponse,
+        },
+        detail: {
+          summary: "Restart machine",
+          description: "Restart a machine (stop then start)",
+        },
+      }
+    )
+
+    // POST /machines/:id/exec - Execute command on a machine
+    .post(
+      "/:id/exec",
+      async ({ params, body, set }) => {
+        const result = await machineService.exec(params.id, body);
+        if (!result.success) {
+          if (result.error === "not_found") {
+            set.status = 404;
+            return { error: "not_found", message: "Machine not found" };
+          }
+          if (result.error === "machine_not_running") {
+            set.status = 400;
+            return { error: "machine_not_running", message: "Machine must be running to execute commands" };
+          }
+          set.status = 500;
+          return { error: "exec_failed", message: "Failed to execute command" };
+        }
+        return result.result;
+      },
+      {
+        params: t.Object({
+          id: t.String({ description: "Machine ID" }),
+        }),
+        body: t.Object({
+          cmd: t.Array(t.String(), { description: "Command and arguments to execute" }),
+          timeout: t.Optional(t.Number({ minimum: 1, description: "Timeout in seconds" })),
+        }),
+        response: {
+          200: execResponse,
+          400: errorResponse,
+          404: errorResponse,
+        },
+        detail: {
+          summary: "Execute command",
+          description: "Execute a command on a running machine and return stdout, stderr, and exit code",
+        },
+      }
+    );
