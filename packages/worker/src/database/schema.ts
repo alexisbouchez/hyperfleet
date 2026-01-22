@@ -15,7 +15,7 @@ export type MachineStatus =
 /**
  * Runtime type enum
  */
-export type RuntimeType = "firecracker" | "docker";
+export type RuntimeType = "firecracker" | "docker" | "cloud-hypervisor";
 
 /**
  * Machines table schema

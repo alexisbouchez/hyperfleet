@@ -8,7 +8,7 @@
 /**
  * Runtime type discriminator
  */
-export type RuntimeType = "firecracker" | "docker";
+export type RuntimeType = "firecracker" | "docker" | "cloud-hypervisor";
 
 /**
  * Common status for all runtime types

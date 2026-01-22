@@ -14,6 +14,7 @@
     "@hyperfleet/worker": "workspace:*",
     "@hyperfleet/firecracker": "workspace:*",
     "@hyperfleet/docker": "workspace:*",
+    "@hyperfleet/cloud-hypervisor": "workspace:*",
     "@hyperfleet/runtime": "workspace:*"
   },
   "devDependencies": {

@@ -167,7 +167,7 @@ export class MachineService {
   }
 
   /**
-   * Create a new machine (supports both Firecracker and Docker)
+   * Create a new machine (supports Firecracker, Docker, and Cloud Hypervisor)
    */
   async create(body: CreateMachineBody): Promise<MachineResponse> {
     const id = nanoid(12);
@@ -175,6 +175,10 @@ export class MachineService {
 
     if (runtimeType === "docker") {
       return this.createDockerMachine(id, body);
+    }
+
+    if (runtimeType === "cloud-hypervisor") {
+      return this.createCloudHypervisorMachine(id, body);
     }
 
     return this.createFirecrackerMachine(id, body);
@@ -274,6 +278,63 @@ export class MachineService {
         guest_ip: null,
         guest_mac: null,
         image: body.image,
+        container_id: null,
+        config_json: JSON.stringify(config),
+      })
+      .execute();
+
+    const machine = await this.get(id);
+    return machine!;
+  }
+
+  /**
+   * Create a new Cloud Hypervisor machine
+   */
+  private async createCloudHypervisorMachine(id: string, body: CreateMachineBody): Promise<MachineResponse> {
+    const socketPath = `/tmp/cloud-hypervisor-${id}.sock`;
+
+    const config = {
+      socketPath,
+      payload: {
+        kernel: body.kernel_image_path,
+        cmdline: body.kernel_args,
+      },
+      cpus: {
+        boot_vcpus: body.vcpu_count,
+        max_vcpus: body.vcpu_count,
+      },
+      memory: {
+        size: body.mem_size_mib * 1024 * 1024, // Convert MiB to bytes
+      },
+      disks: body.rootfs_path ? [{
+        path: body.rootfs_path,
+        readonly: false,
+      }] : undefined,
+      net: body.network?.tap_device ? [{
+        tap: body.network.tap_device,
+        ip: body.network.tap_ip,
+        mac: body.network.guest_mac,
+      }] : undefined,
+    };
+
+    await this.db
+      .insertInto("machines")
+      .values({
+        id,
+        name: body.name,
+        status: "pending",
+        runtime_type: "cloud-hypervisor",
+        vcpu_count: body.vcpu_count,
+        mem_size_mib: body.mem_size_mib,
+        kernel_image_path: body.kernel_image_path,
+        kernel_args: body.kernel_args ?? null,
+        rootfs_path: body.rootfs_path ?? null,
+        socket_path: socketPath,
+        tap_device: body.network?.tap_device ?? null,
+        tap_ip: body.network?.tap_ip ?? null,
+        guest_ip: body.network?.guest_ip ?? null,
+        guest_mac: body.network?.guest_mac ?? null,
+        image: null,
         container_id: null,
         config_json: JSON.stringify(config),
       })

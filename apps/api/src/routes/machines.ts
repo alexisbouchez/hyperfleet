@@ -15,6 +15,7 @@ const machineStatusEnum = t.Union([
 const runtimeTypeEnum = t.Union([
   t.Literal("firecracker"),
   t.Literal("docker"),
+  t.Literal("cloud-hypervisor"),
 ]);
 
 const networkConfig = t.Object({
