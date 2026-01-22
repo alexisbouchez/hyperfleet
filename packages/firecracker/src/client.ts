@@ -4,7 +4,13 @@
  */
 
 import { Result } from "better-result";
-import { FirecrackerApiError } from "@hyperfleet/errors";
+import { FirecrackerApiError, TimeoutError } from "@hyperfleet/errors";
+import {
+  withRetry,
+  withTimeout,
+  CircuitBreaker,
+  type RetryOptions,
+} from "@hyperfleet/resilience";
 import type {
   BootSource,
   Drive,
@@ -39,13 +45,65 @@ import type {
 
 export interface FirecrackerClientConfig {
   socketPath: string;
+  /** Request timeout in milliseconds (default: 30000) */
+  timeoutMs?: number;
+  /** Retry options for transient failures */
+  retry?: Partial<RetryOptions>;
+  /** Enable circuit breaker (default: true) */
+  enableCircuitBreaker?: boolean;
 }
+
+/** Default retry options for Firecracker client */
+const DEFAULT_RETRY_OPTIONS: Partial<RetryOptions> = {
+  maxAttempts: 3,
+  initialDelayMs: 100,
+  maxDelayMs: 5000,
+  backoffMultiplier: 2,
+  jitter: true,
+  // Only retry on connection errors or 5xx errors
+  retryOn: (error: unknown) => {
+    if (FirecrackerApiError.is(error)) {
+      // Retry on 5xx errors or connection errors (status 0)
+      return error.statusCode === 0 || error.statusCode >= 500;
+    }
+    if (TimeoutError.is(error)) {
+      return true;
+    }
+    return false;
+  },
+};
 
 export class FirecrackerClient {
   readonly socketPath: string;
+  private readonly timeoutMs: number;
+  private readonly retryOptions: Partial<RetryOptions>;
+  private readonly circuitBreaker: CircuitBreaker | null;
 
   constructor(config: FirecrackerClientConfig) {
     this.socketPath = config.socketPath;
+    this.timeoutMs = config.timeoutMs ?? 30000;
+    this.retryOptions = { ...DEFAULT_RETRY_OPTIONS, ...config.retry };
+    this.circuitBreaker = config.enableCircuitBreaker !== false
+      ? new CircuitBreaker({
+          failureThreshold: 5,
+          resetTimeoutMs: 30000,
+          halfOpenSuccessThreshold: 2,
+        })
+      : null;
+  }
+
+  /**
+   * Get the current state of the circuit breaker
+   */
+  getCircuitState() {
+    return this.circuitBreaker?.getState() ?? "closed";
+  }
+
+  /**
+   * Reset the circuit breaker to closed state
+   */
+  resetCircuitBreaker() {
+    this.circuitBreaker?.reset();
   }
 
   private async request<T>(
@@ -53,39 +111,95 @@ export class FirecrackerClient {
     path: string,
     body?: unknown
   ): Promise<Result<T, FirecrackerApiError>> {
-    return Result.tryPromise({
-      try: async () => {
-        const url = `unix://${this.socketPath}:${path}`;
+    const makeRequest = async (): Promise<Result<T, FirecrackerApiError>> => {
+      // Apply timeout to the fetch request
+      const timeoutResult = await withTimeout(
+        (async () => {
+          const url = `unix://${this.socketPath}:${path}`;
 
-        const response = await fetch(url, {
-          method,
-          headers: body ? { "Content-Type": "application/json" } : undefined,
-          body: body ? JSON.stringify(body) : undefined,
-        });
-
-        if (!response.ok) {
-          const errorBody = await response.text();
-          throw new FirecrackerApiError({
-            message: `Firecracker API error: ${response.status} - ${errorBody}`,
-            statusCode: response.status,
-            responseBody: errorBody,
+          const response = await fetch(url, {
+            method,
+            headers: body ? { "Content-Type": "application/json" } : undefined,
+            body: body ? JSON.stringify(body) : undefined,
           });
-        }
 
-        const text = await response.text();
-        return text ? JSON.parse(text) : ({} as T);
-      },
-      catch: (cause) => {
-        if (FirecrackerApiError.is(cause)) {
-          return cause;
+          if (!response.ok) {
+            const errorBody = await response.text();
+            throw new FirecrackerApiError({
+              message: `Firecracker API error: ${response.status} - ${errorBody}`,
+              statusCode: response.status,
+              responseBody: errorBody,
+            });
+          }
+
+          const text = await response.text();
+          return text ? JSON.parse(text) : ({} as T);
+        })(),
+        this.timeoutMs,
+        `Firecracker API request timed out after ${this.timeoutMs}ms`
+      );
+
+      if (timeoutResult.isErr()) {
+        return Result.err(
+          new FirecrackerApiError({
+            message: timeoutResult.error.message,
+            statusCode: 0,
+            responseBody: "",
+          })
+        );
+      }
+
+      return Result.ok(timeoutResult.unwrap());
+    };
+
+    // Wrap with retry logic
+    const retryableRequest = () =>
+      Result.tryPromise({
+        try: async () => {
+          const result = await makeRequest();
+          if (result.isErr()) {
+            throw result.error;
+          }
+          return result.unwrap();
+        },
+        catch: (cause) => {
+          if (FirecrackerApiError.is(cause)) {
+            return cause;
+          }
+          return new FirecrackerApiError({
+            message: cause instanceof Error ? cause.message : String(cause),
+            statusCode: 0,
+            responseBody: "",
+          });
+        },
+      });
+
+    // Apply circuit breaker if enabled
+    if (this.circuitBreaker) {
+      const circuitResult = await this.circuitBreaker.call(() =>
+        withRetry(retryableRequest, this.retryOptions)
+      );
+
+      if (circuitResult.isErr()) {
+        // Convert CircuitOpenError to FirecrackerApiError
+        const error = circuitResult.error;
+        if ("retryAfterMs" in error) {
+          return Result.err(
+            new FirecrackerApiError({
+              message: error.message,
+              statusCode: 503,
+              responseBody: JSON.stringify({ retryAfterMs: error.retryAfterMs }),
+            })
+          );
         }
-        return new FirecrackerApiError({
-          message: cause instanceof Error ? cause.message : String(cause),
-          statusCode: 0,
-          responseBody: "",
-        });
-      },
-    });
+        return circuitResult as Result<T, FirecrackerApiError>;
+      }
+
+      return circuitResult as Result<T, FirecrackerApiError>;
+    }
+
+    // Without circuit breaker, just retry
+    return withRetry(retryableRequest, this.retryOptions);
   }
 
   // ==========================================================================

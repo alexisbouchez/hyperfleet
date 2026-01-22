@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@hyperfleet/errors": "workspace:*",
+    "@hyperfleet/resilience": "workspace:*",
     "@hyperfleet/runtime": "workspace:*",
     "better-result": "^2.5.1"
   },
