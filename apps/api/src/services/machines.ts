@@ -1,7 +1,10 @@
 import net from "node:net";
 import { nanoid } from "nanoid";
 import type { Kysely, Database, MachineStatus, Machine, RuntimeType } from "@hyperfleet/worker/database";
+import type { Logger } from "@hyperfleet/logger";
 import type { CreateMachineBody, MachineResponse, ExecBody, ExecResponse, NetworkConfig } from "../types";
+import { RuntimeFactory } from "./runtime-factory";
+import { getGlobalRuntimeManager } from "./runtime-manager";
 
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 30;
 
@@ -100,7 +103,10 @@ const execViaVsock = (
  * Machine service for business logic
  */
 export class MachineService {
-  constructor(private db: Kysely<Database>) {}
+  constructor(
+    private db: Kysely<Database>,
+    private logger?: Logger
+  ) {}
 
   /**
    * Convert DB machine to API response
@@ -379,51 +385,121 @@ export class MachineService {
   }
 
   /**
-   * Start a machine
+   * Start a machine - spawns the actual runtime process
    */
   async start(id: string): Promise<MachineResponse | null> {
-    const machine = await this.get(id);
-    if (!machine) return null;
+    // Get the raw machine record from DB (not the response format)
+    const machineRecord = await this.db
+      .selectFrom("machines")
+      .selectAll()
+      .where("id", "=", id)
+      .executeTakeFirst();
 
-    if (machine.status === "running") {
-      return machine;
+    if (!machineRecord) return null;
+
+    if (machineRecord.status === "running") {
+      this.logger?.info("Machine already running", { machineId: id });
+      return this.toResponse(machineRecord);
     }
 
     // Update status to starting
     await this.updateStatus(id, "starting");
+    this.logger?.info("Starting machine", {
+      machineId: id,
+      runtime: machineRecord.runtime_type,
+    });
 
-    // TODO: Actually spawn Firecracker process here
-    // For now, just simulate by setting to running
-    // In production, this would:
-    // 1. Create Machine instance from @hyperfleet/firecracker
-    // 2. Call machine.start()
-    // 3. Store the PID
+    try {
+      // Create runtime instance from stored config
+      const factory = new RuntimeFactory(this.logger);
+      const runtime = factory.createFromMachine(machineRecord);
 
-    // Simulate starting (placeholder)
-    return this.updateStatus(id, "running", { pid: null });
+      // Start the runtime (spawns actual process)
+      await runtime.start();
+
+      // Get the PID/container ID
+      const pid = runtime.getPid();
+
+      // Register in the global runtime manager for later operations
+      const runtimeManager = getGlobalRuntimeManager(this.logger);
+      runtimeManager.register(id, runtime);
+
+      // Update DB with running status and PID
+      const updated = await this.updateStatus(id, "running", {
+        pid: typeof pid === "number" ? pid : null,
+      });
+
+      // For Docker, also store the container ID
+      if (machineRecord.runtime_type === "docker" && typeof pid === "string") {
+        await this.db
+          .updateTable("machines")
+          .set({ container_id: pid })
+          .where("id", "=", id)
+          .execute();
+      }
+
+      this.logger?.info("Machine started successfully", { machineId: id, pid });
+      return updated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger?.error("Failed to start machine", {
+        machineId: id,
+        error: message,
+      });
+
+      await this.updateStatus(id, "failed", { error_message: message });
+      throw error;
+    }
   }
 
   /**
-   * Stop a machine
+   * Stop a machine - stops the actual runtime process
    */
   async stop(id: string): Promise<MachineResponse | null> {
     const machine = await this.get(id);
     if (!machine) return null;
 
     if (machine.status === "stopped") {
+      this.logger?.info("Machine already stopped", { machineId: id });
       return machine;
     }
 
     // Update status to stopping
     await this.updateStatus(id, "stopping");
+    this.logger?.info("Stopping machine", { machineId: id });
 
-    // TODO: Actually stop Firecracker process here
-    // In production, this would:
-    // 1. Get Machine instance
-    // 2. Call machine.shutdown()
+    try {
+      const runtimeManager = getGlobalRuntimeManager(this.logger);
+      const runtime = runtimeManager.get(id);
 
-    // Simulate stopping
-    return this.updateStatus(id, "stopped", { pid: null });
+      if (runtime) {
+        // Graceful shutdown with 10 second timeout
+        await runtime.shutdown(10000);
+        runtimeManager.remove(id);
+        this.logger?.info("Machine stopped successfully", { machineId: id });
+      } else {
+        this.logger?.warn("No runtime instance found, marking as stopped", {
+          machineId: id,
+        });
+      }
+
+      return this.updateStatus(id, "stopped", { pid: null });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger?.error("Error stopping machine", {
+        machineId: id,
+        error: message,
+      });
+
+      // Still mark as stopped even if shutdown failed
+      const runtimeManager = getGlobalRuntimeManager(this.logger);
+      runtimeManager.remove(id);
+
+      return this.updateStatus(id, "stopped", {
+        pid: null,
+        error_message: message,
+      });
+    }
   }
 
   /**

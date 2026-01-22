@@ -12,6 +12,9 @@ export type {
   MachineUpdate,
   MachineStatus,
   RuntimeType,
+  ApiKeysTable,
+  ApiKey,
+  NewApiKey,
 } from "./schema";
 
 // Migrations

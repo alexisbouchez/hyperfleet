@@ -63,8 +63,34 @@ export type NewMachine = Insertable<MachinesTable>;
 export type MachineUpdate = Updateable<MachinesTable>;
 
 /**
+ * API Keys table schema
+ */
+export interface ApiKeysTable {
+  id: string;
+  name: string;
+  key_hash: string;
+  key_prefix: string;
+  scopes: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  created_at: Generated<string>;
+  revoked_at: string | null;
+}
+
+/**
+ * Type for SELECT queries on api_keys
+ */
+export type ApiKey = Selectable<ApiKeysTable>;
+
+/**
+ * Type for INSERT queries on api_keys
+ */
+export type NewApiKey = Insertable<ApiKeysTable>;
+
+/**
  * Database schema definition for Kysely
  */
 export interface Database {
   machines: MachinesTable;
+  api_keys: ApiKeysTable;
 }

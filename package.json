@@ -5,7 +5,8 @@
   "scripts": {
     "setup": "bun run scripts/setup.ts",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "typecheck": "bun run --filter '*' typecheck"
   },
   "devDependencies": {
     "@eslint/js": "9.39.2",

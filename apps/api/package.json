@@ -15,7 +15,8 @@
     "@hyperfleet/firecracker": "workspace:*",
     "@hyperfleet/docker": "workspace:*",
     "@hyperfleet/cloud-hypervisor": "workspace:*",
-    "@hyperfleet/runtime": "workspace:*"
+    "@hyperfleet/runtime": "workspace:*",
+    "@hyperfleet/logger": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest"

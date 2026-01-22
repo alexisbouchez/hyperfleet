@@ -1,6 +1,8 @@
 import { Elysia, t } from "elysia";
-import type { MachineService } from "../services/machines";
 import type { MachineStatus, RuntimeType } from "@hyperfleet/worker/database";
+import type { MachineService } from "../services/machines";
+import type { AuthService } from "../services/auth";
+import type { Logger } from "@hyperfleet/logger";
 
 const machineStatusEnum = t.Union([
   t.Literal("pending"),
@@ -66,12 +68,54 @@ const execResponse = t.Object({
   stderr: t.String(),
 });
 
-export const machineRoutes = (machineService: MachineService) =>
+// Type for context with our derived services
+type Context = {
+  machineService: MachineService;
+  authService: AuthService;
+  logger: Logger;
+};
+
+/**
+ * Validate API key from Authorization header
+ */
+async function validateAuth(
+  request: Request,
+  set: { status?: number | string },
+  authService: AuthService,
+  logger: Logger
+): Promise<boolean> {
+  const authHeader = request.headers.get("authorization");
+
+  if (!authHeader?.startsWith("Bearer ")) {
+    set.status = 401;
+    return false;
+  }
+
+  const token = authHeader.slice(7);
+  const apiKey = await authService.validateKey(token);
+
+  if (!apiKey) {
+    logger.warn("Invalid API key attempt", { prefix: token.slice(0, 11) });
+    set.status = 401;
+    return false;
+  }
+
+  logger.debug("Request authenticated", { keyId: apiKey.id, keyName: apiKey.name });
+  return true;
+}
+
+export const machineRoutes = (disableAuth: boolean) =>
   new Elysia({ prefix: "/machines", tags: ["machines"] })
     // GET /machines - List all machines
     .get(
       "/",
-      async ({ query }) => {
+      async (ctx) => {
+        const { query, machineService, authService, logger, request, set } = ctx as typeof ctx & Context;
+
+        if (!disableAuth && !(await validateAuth(request, set, authService, logger))) {
+          return { error: "unauthorized", message: "Invalid or missing API key" };
+        }
+
         return machineService.list(
           query.status as MachineStatus | undefined,
           query.runtime_type as RuntimeType | undefined
@@ -82,7 +126,7 @@ export const machineRoutes = (machineService: MachineService) =>
           status: t.Optional(machineStatusEnum),
           runtime_type: t.Optional(runtimeTypeEnum),
         }),
-        response: t.Array(machineResponse),
+        response: t.Union([t.Array(machineResponse), errorResponse]),
         detail: {
           summary: "List machines",
           description: "List all machines, optionally filtered by status and runtime type",
@@ -93,7 +137,13 @@ export const machineRoutes = (machineService: MachineService) =>
     // POST /machines - Create a new machine
     .post(
       "/",
-      async ({ body, set }) => {
+      async (ctx) => {
+        const { body, set, machineService, authService, logger, request } = ctx as typeof ctx & Context;
+
+        if (!disableAuth && !(await validateAuth(request, set, authService, logger))) {
+          return { error: "unauthorized", message: "Invalid or missing API key" };
+        }
+
         const machine = await machineService.create(body);
         set.status = 201;
         return machine;
@@ -134,6 +184,7 @@ export const machineRoutes = (machineService: MachineService) =>
         response: {
           201: machineResponse,
           400: errorResponse,
+          401: errorResponse,
         },
         detail: {
           summary: "Create machine",
@@ -145,7 +196,13 @@ export const machineRoutes = (machineService: MachineService) =>
     // GET /machines/:id - Get machine by ID
     .get(
       "/:id",
-      async ({ params, set }) => {
+      async (ctx) => {
+        const { params, set, machineService, authService, logger, request } = ctx as typeof ctx & Context;
+
+        if (!disableAuth && !(await validateAuth(request, set, authService, logger))) {
+          return { error: "unauthorized", message: "Invalid or missing API key" };
+        }
+
         const machine = await machineService.get(params.id);
         if (!machine) {
           set.status = 404;
@@ -159,6 +216,7 @@ export const machineRoutes = (machineService: MachineService) =>
         }),
         response: {
           200: machineResponse,
+          401: errorResponse,
           404: errorResponse,
         },
         detail: {
@@ -171,7 +229,13 @@ export const machineRoutes = (machineService: MachineService) =>
     // DELETE /machines/:id - Delete a machine
     .delete(
       "/:id",
-      async ({ params, set }) => {
+      async (ctx) => {
+        const { params, set, machineService, authService, logger, request } = ctx as typeof ctx & Context;
+
+        if (!disableAuth && !(await validateAuth(request, set, authService, logger))) {
+          return { error: "unauthorized", message: "Invalid or missing API key" };
+        }
+
         const machine = await machineService.get(params.id);
         if (!machine) {
           set.status = 404;
@@ -191,6 +255,7 @@ export const machineRoutes = (machineService: MachineService) =>
         }),
         response: {
           204: t.Void(),
+          401: errorResponse,
           404: errorResponse,
         },
         detail: {
@@ -203,7 +268,13 @@ export const machineRoutes = (machineService: MachineService) =>
     // POST /machines/:id/start - Start a machine
     .post(
       "/:id/start",
-      async ({ params, set }) => {
+      async (ctx) => {
+        const { params, set, machineService, authService, logger, request } = ctx as typeof ctx & Context;
+
+        if (!disableAuth && !(await validateAuth(request, set, authService, logger))) {
+          return { error: "unauthorized", message: "Invalid or missing API key" };
+        }
+
         const machine = await machineService.start(params.id);
         if (!machine) {
           set.status = 404;
@@ -217,6 +288,7 @@ export const machineRoutes = (machineService: MachineService) =>
         }),
         response: {
           200: machineResponse,
+          401: errorResponse,
           404: errorResponse,
         },
         detail: {
@@ -229,7 +301,13 @@ export const machineRoutes = (machineService: MachineService) =>
     // POST /machines/:id/stop - Stop a machine
     .post(
       "/:id/stop",
-      async ({ params, set }) => {
+      async (ctx) => {
+        const { params, set, machineService, authService, logger, request } = ctx as typeof ctx & Context;
+
+        if (!disableAuth && !(await validateAuth(request, set, authService, logger))) {
+          return { error: "unauthorized", message: "Invalid or missing API key" };
+        }
+
         const machine = await machineService.stop(params.id);
         if (!machine) {
           set.status = 404;
@@ -243,6 +321,7 @@ export const machineRoutes = (machineService: MachineService) =>
         }),
         response: {
           200: machineResponse,
+          401: errorResponse,
           404: errorResponse,
         },
         detail: {
@@ -255,7 +334,13 @@ export const machineRoutes = (machineService: MachineService) =>
     // POST /machines/:id/restart - Restart a machine
     .post(
       "/:id/restart",
-      async ({ params, set }) => {
+      async (ctx) => {
+        const { params, set, machineService, authService, logger, request } = ctx as typeof ctx & Context;
+
+        if (!disableAuth && !(await validateAuth(request, set, authService, logger))) {
+          return { error: "unauthorized", message: "Invalid or missing API key" };
+        }
+
         const machine = await machineService.restart(params.id);
         if (!machine) {
           set.status = 404;
@@ -269,6 +354,7 @@ export const machineRoutes = (machineService: MachineService) =>
         }),
         response: {
           200: machineResponse,
+          401: errorResponse,
           404: errorResponse,
         },
         detail: {
@@ -281,7 +367,13 @@ export const machineRoutes = (machineService: MachineService) =>
     // POST /machines/:id/exec - Execute command on a machine
     .post(
       "/:id/exec",
-      async ({ params, body, set }) => {
+      async (ctx) => {
+        const { params, body, set, machineService, authService, logger, request } = ctx as typeof ctx & Context;
+
+        if (!disableAuth && !(await validateAuth(request, set, authService, logger))) {
+          return { error: "unauthorized", message: "Invalid or missing API key" };
+        }
+
         const result = await machineService.exec(params.id, body);
         if (!result.success) {
           if (result.error === "not_found") {
@@ -308,6 +400,7 @@ export const machineRoutes = (machineService: MachineService) =>
         response: {
           200: execResponse,
           400: errorResponse,
+          401: errorResponse,
           404: errorResponse,
         },
         detail: {
