@@ -52,6 +52,7 @@ export interface FirecrackerConfig {
   kernel_args?: string;
   rootfs_path?: string;
   network?: NetworkConfig;
+  exposed_ports?: number[];
 }
 
 /**
@@ -66,6 +67,7 @@ export interface CreateFirecrackerMachineBody {
   kernel_args?: string;
   rootfs_path?: string;
   network?: NetworkConfig;
+  exposed_ports?: number[];
 }
 
 /**
@@ -101,6 +103,7 @@ export interface CreateMachineBody {
   kernel_args?: string;
   rootfs_path?: string;
   network?: NetworkConfig;
+  exposed_ports?: number[];
   // Docker fields
   image?: string;
   cmd?: string[];
@@ -137,6 +140,7 @@ export interface MachineResponse {
   kernel_args: string | null;
   rootfs_path: string | null;
   network: NetworkConfig | null;
+  exposed_ports?: number[];
   // Docker-specific
   image: string | null;
   container_id: string | null;

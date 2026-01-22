@@ -51,6 +51,7 @@ const machineResponse = t.Object({
   kernel_args: t.Nullable(t.String()),
   rootfs_path: t.Nullable(t.String()),
   network: t.Nullable(networkConfig),
+  exposed_ports: t.Optional(t.Array(t.Number({ minimum: 1, maximum: 65535 }))),
   image: t.Nullable(t.String()),
   container_id: t.Nullable(t.String()),
   pid: t.Nullable(t.Number()),
@@ -169,6 +170,10 @@ export const machineRoutes = (disableAuth: boolean) =>
             guest_ip: t.Optional(t.String({ description: "Guest VM IP address" })),
             guest_mac: t.Optional(t.String({ description: "Guest VM MAC address" })),
           }, { description: "Network configuration for internet access" })),
+          exposed_ports: t.Optional(t.Array(
+            t.Number({ minimum: 1, maximum: 65535 }),
+            { description: "Ports to expose via reverse proxy (VM runtimes only)" }
+          )),
           // Docker-specific fields
           image: t.Optional(t.String({ description: "Docker image (required for docker)" })),
           cmd: t.Optional(t.Array(t.String(), { description: "Command to run" })),

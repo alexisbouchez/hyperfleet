@@ -1,5 +1,5 @@
 import net from "node:net";
-import { nanoid } from "nanoid";
+import { customAlphabet } from "nanoid";
 import { Result } from "better-result";
 import type { Kysely, Database, MachineStatus, Machine, RuntimeType } from "@hyperfleet/worker/database";
 import type { Logger } from "@hyperfleet/logger";
@@ -32,6 +32,7 @@ function getNetManager(): NetworkManager {
 }
 
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 30;
+const generateMachineId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
 
 type MachineConfig = {
   vsock?: {
@@ -39,7 +40,27 @@ type MachineConfig = {
     guest_cid?: number;
   };
   exec_port?: number;
+  exposedPorts?: number[];
 };
+
+function normalizeExposedPorts(
+  ports?: number[]
+): Result<number[] | undefined, ValidationError> {
+  if (!ports || ports.length === 0) {
+    return Result.ok(undefined);
+  }
+
+  const unique = Array.from(new Set(ports));
+  for (const port of unique) {
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return Result.err(
+        new ValidationError({ message: "exposed_ports must be valid TCP ports" })
+      );
+    }
+  }
+
+  return Result.ok(unique);
+}
 
 const isExecResponse = (value: unknown): value is ExecResponse => {
   if (!value || typeof value !== "object") return false;
@@ -145,6 +166,8 @@ export class MachineService {
           }
         : null;
 
+    const exposedPorts = this.getExposedPorts(machine);
+
     return {
       id: machine.id,
       name: machine.name,
@@ -156,12 +179,39 @@ export class MachineService {
       kernel_args: machine.kernel_args,
       rootfs_path: machine.rootfs_path,
       network,
+      exposed_ports: exposedPorts,
       image: machine.image,
       container_id: machine.container_id,
       pid: machine.pid,
       created_at: machine.created_at,
       updated_at: machine.updated_at,
     };
+  }
+
+  private getExposedPorts(machine: Machine): number[] | undefined {
+    if (machine.runtime_type === "docker") {
+      return undefined;
+    }
+
+    const configResult = Result.try(() => JSON.parse(machine.config_json) as MachineConfig);
+    if (configResult.isErr()) {
+      this.logger?.warn("Failed to parse machine config for exposed ports", {
+        machineId: machine.id,
+        error: configResult.error.message,
+      });
+      return undefined;
+    }
+
+    const normalizeResult = normalizeExposedPorts(configResult.unwrap().exposedPorts);
+    if (normalizeResult.isErr()) {
+      this.logger?.warn("Invalid exposed ports configuration", {
+        machineId: machine.id,
+        error: normalizeResult.error.message,
+      });
+      return undefined;
+    }
+
+    return normalizeResult.unwrap();
   }
 
   /**
@@ -199,7 +249,7 @@ export class MachineService {
    * Create a new machine (supports Firecracker, Docker, and Cloud Hypervisor)
    */
   async create(body: CreateMachineBody): Promise<Result<MachineResponse, HyperfleetError>> {
-    const id = nanoid(12);
+    const id = generateMachineId();
     const runtimeType: RuntimeType = body.runtime_type || "firecracker";
 
     if (runtimeType === "docker") {
@@ -267,6 +317,11 @@ export class MachineService {
       kernelArgs = `${kernelArgs} ${vmNetwork.kernelArgs}`;
     }
 
+    const exposedPortsResult = normalizeExposedPorts(body.exposed_ports);
+    if (exposedPortsResult.isErr()) {
+      return Result.err(exposedPortsResult.error);
+    }
+
     const config = {
       socketPath,
       kernelImagePath: kernelPath,
@@ -274,6 +329,7 @@ export class MachineService {
       rootfsPath: rootfsPath,
       vcpuCount: body.vcpu_count,
       memSizeMib: body.mem_size_mib,
+      exposedPorts: exposedPortsResult.unwrap(),
       // Add network interfaces if configured
       networkInterfaces: networkConfig?.tap_device
         ? [
@@ -442,6 +498,11 @@ export class MachineService {
       kernelArgs = `${kernelArgs} ${vmNetwork.kernelArgs}`;
     }
 
+    const exposedPortsResult = normalizeExposedPorts(body.exposed_ports);
+    if (exposedPortsResult.isErr()) {
+      return Result.err(exposedPortsResult.error);
+    }
+
     const config = {
       socketPath,
       payload: {
@@ -472,6 +533,7 @@ export class MachineService {
             },
           ]
         : undefined,
+      exposedPorts: exposedPortsResult.unwrap(),
     };
 
     await this.db
