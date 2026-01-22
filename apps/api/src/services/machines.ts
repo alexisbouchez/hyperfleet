@@ -10,10 +10,26 @@ import {
   RuntimeError,
   type HyperfleetError,
 } from "@hyperfleet/errors";
+import { NetworkManager, getNetworkManager, type VMNetworkConfig } from "@hyperfleet/network";
 import { validateMachinePaths, sanitizePath } from "./validation";
 import type { CreateMachineBody, MachineResponse, ExecBody, ExecResponse, NetworkConfig } from "../types";
 import { RuntimeFactory } from "./runtime-factory";
 import { getGlobalRuntimeManager } from "./runtime-manager";
+
+// Global network manager instance
+let networkManager: NetworkManager | null = null;
+
+function getNetManager(): NetworkManager {
+  if (!networkManager) {
+    networkManager = new NetworkManager({
+      subnet: "172.16.0.0/24",
+      gateway: "172.16.0.1",
+      tapPrefix: "hf",
+      enableNAT: true,
+    });
+  }
+  return networkManager;
+}
 
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 30;
 
@@ -217,14 +233,57 @@ export class MachineService {
     const { kernelPath, rootfsPath } = validationResult.unwrap();
     const socketPath = `/tmp/firecracker-${id}.sock`;
 
+    // Auto-allocate network if not specified and we're on Linux
+    let networkConfig: NetworkConfig | undefined = body.network;
+    let vmNetwork: VMNetworkConfig | undefined;
+
+    if (!networkConfig && process.platform === "linux") {
+      const netManager = getNetManager();
+      const allocResult = await netManager.allocateNetwork(id);
+      if (allocResult.isOk()) {
+        vmNetwork = allocResult.unwrap();
+        networkConfig = {
+          tap_device: vmNetwork.tapDevice,
+          tap_ip: vmNetwork.hostIp,
+          guest_ip: vmNetwork.ip,
+          guest_mac: vmNetwork.mac,
+        };
+        this.logger?.info("Auto-allocated network for machine", {
+          machineId: id,
+          ip: vmNetwork.ip,
+          tap: vmNetwork.tapDevice,
+        });
+      } else {
+        this.logger?.warn("Failed to auto-allocate network", {
+          machineId: id,
+          error: allocResult.error.message,
+        });
+      }
+    }
+
+    // Build kernel args with network configuration if available
+    let kernelArgs = body.kernel_args ?? "console=ttyS0 reboot=k panic=1 pci=off";
+    if (vmNetwork?.kernelArgs) {
+      kernelArgs = `${kernelArgs} ${vmNetwork.kernelArgs}`;
+    }
+
     const config = {
       socketPath,
       kernelImagePath: kernelPath,
-      kernelArgs: body.kernel_args,
+      kernelArgs,
       rootfsPath: rootfsPath,
       vcpuCount: body.vcpu_count,
       memSizeMib: body.mem_size_mib,
-      network: body.network,
+      // Add network interfaces if configured
+      networkInterfaces: networkConfig?.tap_device
+        ? [
+            {
+              iface_id: "eth0",
+              host_dev_name: networkConfig.tap_device,
+              guest_mac: networkConfig.guest_mac,
+            },
+          ]
+        : undefined,
     };
 
     await this.db
@@ -237,13 +296,13 @@ export class MachineService {
         vcpu_count: body.vcpu_count,
         mem_size_mib: body.mem_size_mib,
         kernel_image_path: kernelPath,
-        kernel_args: body.kernel_args ?? null,
+        kernel_args: kernelArgs,
         rootfs_path: rootfsPath ?? null,
         socket_path: socketPath,
-        tap_device: body.network?.tap_device ?? null,
-        tap_ip: body.network?.tap_ip ?? null,
-        guest_ip: body.network?.guest_ip ?? null,
-        guest_mac: body.network?.guest_mac ?? null,
+        tap_device: networkConfig?.tap_device ?? null,
+        tap_ip: networkConfig?.tap_ip ?? null,
+        guest_ip: networkConfig?.guest_ip ?? null,
+        guest_mac: networkConfig?.guest_mac ?? null,
         image: null,
         container_id: null,
         config_json: JSON.stringify(config),
@@ -349,11 +408,45 @@ export class MachineService {
     const { kernelPath, rootfsPath } = validationResult.unwrap();
     const socketPath = `/tmp/cloud-hypervisor-${id}.sock`;
 
+    // Auto-allocate network if not specified and we're on Linux
+    let networkConfig: NetworkConfig | undefined = body.network;
+    let vmNetwork: VMNetworkConfig | undefined;
+
+    if (!networkConfig && process.platform === "linux") {
+      const netManager = getNetManager();
+      const allocResult = await netManager.allocateNetwork(id);
+      if (allocResult.isOk()) {
+        vmNetwork = allocResult.unwrap();
+        networkConfig = {
+          tap_device: vmNetwork.tapDevice,
+          tap_ip: vmNetwork.hostIp,
+          guest_ip: vmNetwork.ip,
+          guest_mac: vmNetwork.mac,
+        };
+        this.logger?.info("Auto-allocated network for machine", {
+          machineId: id,
+          ip: vmNetwork.ip,
+          tap: vmNetwork.tapDevice,
+        });
+      } else {
+        this.logger?.warn("Failed to auto-allocate network", {
+          machineId: id,
+          error: allocResult.error.message,
+        });
+      }
+    }
+
+    // Build kernel args with network configuration if available
+    let kernelArgs = body.kernel_args ?? "console=ttyS0 root=/dev/vda rw";
+    if (vmNetwork?.kernelArgs) {
+      kernelArgs = `${kernelArgs} ${vmNetwork.kernelArgs}`;
+    }
+
     const config = {
       socketPath,
       payload: {
         kernel: kernelPath,
-        cmdline: body.kernel_args,
+        cmdline: kernelArgs,
       },
       cpus: {
         boot_vcpus: body.vcpu_count,
@@ -370,12 +463,12 @@ export class MachineService {
             },
           ]
         : undefined,
-      net: body.network?.tap_device
+      net: networkConfig?.tap_device
         ? [
             {
-              tap: body.network.tap_device,
-              ip: body.network.tap_ip,
-              mac: body.network.guest_mac,
+              tap: networkConfig.tap_device,
+              ip: networkConfig.tap_ip,
+              mac: networkConfig.guest_mac,
             },
           ]
         : undefined,
@@ -391,13 +484,13 @@ export class MachineService {
         vcpu_count: body.vcpu_count,
         mem_size_mib: body.mem_size_mib,
         kernel_image_path: kernelPath,
-        kernel_args: body.kernel_args ?? null,
+        kernel_args: kernelArgs,
         rootfs_path: rootfsPath ?? null,
         socket_path: socketPath,
-        tap_device: body.network?.tap_device ?? null,
-        tap_ip: body.network?.tap_ip ?? null,
-        guest_ip: body.network?.guest_ip ?? null,
-        guest_mac: body.network?.guest_mac ?? null,
+        tap_device: networkConfig?.tap_device ?? null,
+        tap_ip: networkConfig?.tap_ip ?? null,
+        guest_ip: networkConfig?.guest_ip ?? null,
+        guest_mac: networkConfig?.guest_mac ?? null,
         image: null,
         container_id: null,
         config_json: JSON.stringify(config),
@@ -412,6 +505,29 @@ export class MachineService {
    * Delete a machine
    */
   async delete(id: string): Promise<boolean> {
+    // Get machine to check runtime type
+    const machine = await this.db
+      .selectFrom("machines")
+      .selectAll()
+      .where("id", "=", id)
+      .executeTakeFirst();
+
+    if (!machine) {
+      return false;
+    }
+
+    // Release network allocation for VM-based runtimes
+    if (machine.runtime_type === "firecracker" || machine.runtime_type === "cloud-hypervisor") {
+      const netManager = getNetManager();
+      const releaseResult = await netManager.releaseNetwork(id);
+      if (releaseResult.isErr()) {
+        this.logger?.warn("Failed to release network", {
+          machineId: id,
+          error: releaseResult.error.message,
+        });
+      }
+    }
+
     const result = await this.db
       .deleteFrom("machines")
       .where("id", "=", id)

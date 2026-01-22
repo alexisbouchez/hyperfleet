@@ -9,7 +9,12 @@
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "test:coverage": "bun test --coverage"
+    "test:coverage": "bun test --coverage",
+    "test:unit": "bun test --test-name-pattern '.*' packages/logger packages/resilience packages/errors packages/worker apps/api/src/__tests__/services",
+    "test:integration:docker": "bun test packages/docker/src/__tests__/integration",
+    "test:integration:api": "bun test apps/api/src/__tests__/integration",
+    "test:integration:vm": "bun test packages/firecracker/src/__tests__/integration packages/cloud-hypervisor/src/__tests__/integration",
+    "test:integration": "bun run test:integration:docker && bun run test:integration:api"
   },
   "devDependencies": {
     "@eslint/js": "9.39.2",

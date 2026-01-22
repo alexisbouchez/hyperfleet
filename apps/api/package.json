@@ -18,7 +18,8 @@
     "@hyperfleet/cloud-hypervisor": "workspace:*",
     "@hyperfleet/runtime": "workspace:*",
     "@hyperfleet/logger": "workspace:*",
-    "@hyperfleet/errors": "workspace:*"
+    "@hyperfleet/errors": "workspace:*",
+    "@hyperfleet/network": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest"
