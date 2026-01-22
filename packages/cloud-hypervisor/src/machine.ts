@@ -270,10 +270,18 @@ export class Machine implements Runtime {
   }
 
   /**
-   * Reboot the VM
+   * Reboot the VM (guest reboot, VMM stays running)
    */
   async reboot(): Promise<void> {
     (await this.client.rebootVm()).unwrap();
+  }
+
+  /**
+   * Restart the VM (full shutdown + start)
+   */
+  async restart(timeoutSeconds = 5): Promise<void> {
+    await this.shutdown(timeoutSeconds * 1000);
+    await this.start();
   }
 
   /**

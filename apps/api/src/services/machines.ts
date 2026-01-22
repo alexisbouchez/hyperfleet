@@ -716,10 +716,10 @@ export class MachineService {
     const runtime = runtimeManager.get(id);
 
     if (runtime) {
-      // Graceful shutdown with 10 second timeout - catch errors but don't fail
+      // Graceful shutdown with 3 second timeout - catch errors but don't fail
       const shutdownResult = await Result.tryPromise({
         try: async () => {
-          await runtime.shutdown(10000);
+          await runtime.shutdown(3000);
         },
         catch: (error) => error,
       });
@@ -750,6 +750,39 @@ export class MachineService {
    * Restart a machine
    */
   async restart(id: string): Promise<Result<MachineResponse, HyperfleetError>> {
+    const machine = await this.get(id);
+    if (!machine) {
+      return Result.err(new NotFoundError({ message: "Machine not found" }));
+    }
+
+    // For Docker containers, use the runtime's restart method directly
+    // This avoids container name conflicts from stop+start
+    if (machine.runtime_type === "docker") {
+      const runtimeManager = getGlobalRuntimeManager(this.logger);
+      const runtime = runtimeManager.get(id);
+
+      if (!runtime) {
+        return Result.err(new RuntimeError({ message: "Runtime not found - is the container running?" }));
+      }
+
+      this.logger?.info("Restarting machine", { machineId: id });
+
+      return Result.tryPromise({
+        try: async () => {
+          // Use short restart timeout (2s graceful, then force)
+          await runtime.restart(2);
+          this.logger?.info("Machine restarted successfully", { machineId: id });
+          return (await this.get(id))!;
+        },
+        catch: (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger?.error("Failed to restart machine", { machineId: id, error: message });
+          return new RuntimeError({ message: `Restart failed: ${message}`, cause: error });
+        },
+      });
+    }
+
+    // For VM runtimes, use stop+start
     const stopResult = await this.stop(id);
     if (stopResult.isErr()) {
       return stopResult;
@@ -778,6 +811,31 @@ export class MachineService {
       return Result.err(new ValidationError({ message: "Machine must be running to execute commands" }));
     }
 
+    const timeoutSeconds = Math.max(1, body.timeout ?? DEFAULT_EXEC_TIMEOUT_SECONDS);
+    const timeoutMs = timeoutSeconds * 1000;
+
+    // For Docker containers, use the runtime's exec method directly
+    if (machine.runtime_type === "docker") {
+      const runtimeManager = getGlobalRuntimeManager(this.logger);
+      const runtime = runtimeManager.get(id);
+
+      if (!runtime) {
+        return Result.err(new RuntimeError({ message: "Runtime not found - is the container running?" }));
+      }
+
+      return Result.tryPromise({
+        try: async () => {
+          const result = await runtime.exec(body.cmd, timeoutMs);
+          return result;
+        },
+        catch: (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          return new RuntimeError({ message: `Exec failed: ${message}`, cause: error });
+        },
+      });
+    }
+
+    // For VM runtimes, use vsock
     const configResult = Result.try(() => JSON.parse(machine.config_json) as MachineConfig);
     const config = configResult.unwrapOr(null);
     const udsPath = config?.vsock?.uds_path;
@@ -785,9 +843,6 @@ export class MachineService {
     if (!udsPath) {
       return Result.err(new VsockError({ message: "Vsock not configured for this machine" }));
     }
-
-    const timeoutSeconds = Math.max(1, body.timeout ?? DEFAULT_EXEC_TIMEOUT_SECONDS);
-    const timeoutMs = timeoutSeconds * 1000;
 
     return execViaVsock(udsPath, { cmd: body.cmd, timeout: timeoutSeconds }, timeoutMs);
   }

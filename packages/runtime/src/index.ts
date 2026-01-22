@@ -163,6 +163,11 @@ export interface Runtime {
   shutdown(timeoutMs?: number): Promise<void>;
 
   /**
+   * Restart the runtime instance
+   */
+  restart(timeoutSeconds?: number): Promise<void>;
+
+  /**
    * Check if the runtime is currently running
    */
   isRunning(): boolean;

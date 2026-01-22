@@ -263,6 +263,14 @@ export class Machine implements Runtime {
   }
 
   /**
+   * Restart the microVM
+   */
+  async restart(timeoutSeconds = 5): Promise<void> {
+    await this.shutdown(timeoutSeconds * 1000);
+    await this.start();
+  }
+
+  /**
    * Get the PID of the Firecracker process
    */
   getPid(): number | null {

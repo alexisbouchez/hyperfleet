@@ -266,9 +266,11 @@ export class Container implements Runtime {
       return;
     }
 
-    const result = await this.client.stopContainer(this.containerId, 10);
+    // Use short timeout (2s) for graceful stop, then force kill
+    const result = await this.client.stopContainer(this.containerId, 2);
     // Ignore errors - container might already be stopped
     result.unwrapOr(undefined);
+    this.started = false;
   }
 
   /**
@@ -310,6 +312,7 @@ export class Container implements Runtime {
       // Ignore errors - already stopped
       killResult.unwrapOr(undefined);
     }
+    this.started = false;
   }
 
   /**

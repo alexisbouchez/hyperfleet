@@ -165,13 +165,24 @@ export class DockerClient {
           return result.unwrap();
         },
         catch: (cause) => {
+          // Check for DockerCliError using both is() and _tag for robustness
           if (DockerCliError.is(cause)) {
             return cause;
           }
+          // Fallback: check for _tag property (handles prototype chain issues)
+          if (cause && typeof cause === "object" && "_tag" in cause && cause._tag === "DockerCliError") {
+            return cause as DockerCliError;
+          }
+          // Preserve exitCode from error-like objects
+          const exitCode = cause && typeof cause === "object" && "exitCode" in cause
+            ? (cause as { exitCode: number }).exitCode
+            : -1;
           return new DockerCliError({
             message: cause instanceof Error ? cause.message : String(cause),
-            exitCode: -1,
-            stderr: "",
+            exitCode,
+            stderr: cause && typeof cause === "object" && "stderr" in cause
+              ? String((cause as { stderr: unknown }).stderr)
+              : "",
           });
         },
       });
@@ -412,11 +423,21 @@ export class DockerClient {
 
     args.push(containerId, ...cmd);
 
-    const result = await this.exec(args);
-    return result.match({
-      ok: ({ stdout, stderr }) => ({ exitCode: 0, stdout, stderr }),
-      err: (error) => ({ exitCode: error.exitCode, stdout: "", stderr: error.stderr }),
+    // Run exec directly without retry/circuit breaker - it's a fast operation
+    // and we need to preserve the exact exit code from the command
+    const cmdArgs = this.host ? ["-H", this.host, ...args] : args;
+    const proc = Bun.spawn([this.dockerBinary, ...cmdArgs], {
+      stdout: "pipe",
+      stderr: "pipe",
     });
+
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+
+    return { exitCode, stdout, stderr };
   }
 
   async waitContainer(containerId: string): Promise<Result<number, DockerCliError>> {
