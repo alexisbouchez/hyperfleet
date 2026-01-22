@@ -28,51 +28,67 @@ describe("Path Validation", () => {
     it("rejects paths with .. traversal", () => {
       const result = sanitizePath("/var/lib/../etc/passwd");
       expect(result.isErr()).toBe(true);
-      expect(PathTraversalError.is(result.error)).toBe(true);
-      expect(result.error.path).toBe("/var/lib/../etc/passwd");
+      if (result.isErr()) {
+        expect(PathTraversalError.is(result.error)).toBe(true);
+        expect(result.error.path).toBe("/var/lib/../etc/passwd");
+      }
     });
 
     it("rejects paths with backslash traversal", () => {
       const result = sanitizePath("/var/lib/..\\etc\\passwd");
       expect(result.isErr()).toBe(true);
-      expect(PathTraversalError.is(result.error)).toBe(true);
+      if (result.isErr()) {
+        expect(PathTraversalError.is(result.error)).toBe(true);
+      }
     });
 
     it("rejects paths with null bytes", () => {
       const result = sanitizePath("/var/lib/hyperfleet\x00/kernel");
       expect(result.isErr()).toBe(true);
-      expect(PathTraversalError.is(result.error)).toBe(true);
+      if (result.isErr()) {
+        expect(PathTraversalError.is(result.error)).toBe(true);
+      }
     });
 
     it("rejects paths with URL-encoded null bytes", () => {
       const result = sanitizePath("/var/lib/hyperfleet%00/kernel");
       expect(result.isErr()).toBe(true);
-      expect(PathTraversalError.is(result.error)).toBe(true);
+      if (result.isErr()) {
+        expect(PathTraversalError.is(result.error)).toBe(true);
+      }
     });
 
     it("rejects paths with URL-encoded traversal", () => {
       const result = sanitizePath("/var/lib/%2e%2e/etc/passwd");
       expect(result.isErr()).toBe(true);
-      expect(PathTraversalError.is(result.error)).toBe(true);
+      if (result.isErr()) {
+        expect(PathTraversalError.is(result.error)).toBe(true);
+      }
     });
 
     it("rejects paths with double URL-encoded traversal", () => {
       const result = sanitizePath("/var/lib/%252e%252e/etc/passwd");
       expect(result.isErr()).toBe(true);
-      expect(PathTraversalError.is(result.error)).toBe(true);
+      if (result.isErr()) {
+        expect(PathTraversalError.is(result.error)).toBe(true);
+      }
     });
 
     it("rejects relative paths", () => {
       const result = sanitizePath("kernel.img");
       expect(result.isErr()).toBe(true);
-      expect(PathTraversalError.is(result.error)).toBe(true);
-      expect(result.error.message).toContain("absolute");
+      if (result.isErr()) {
+        expect(PathTraversalError.is(result.error)).toBe(true);
+        expect(result.error.message).toContain("absolute");
+      }
     });
 
     it("rejects paths starting with . but not /", () => {
       const result = sanitizePath("./kernel.img");
       expect(result.isErr()).toBe(true);
-      expect(PathTraversalError.is(result.error)).toBe(true);
+      if (result.isErr()) {
+        expect(PathTraversalError.is(result.error)).toBe(true);
+      }
     });
 
     it("accepts paths with colons (valid on Unix)", () => {
@@ -118,8 +134,10 @@ describe("Path Validation", () => {
     it("returns NotFoundError for non-existent file", async () => {
       const result = await validateFileExists("/nonexistent/path/file.img");
       expect(result.isErr()).toBe(true);
-      expect(NotFoundError.is(result.error)).toBe(true);
-      expect(result.error.message).toContain("/nonexistent/path/file.img");
+      if (result.isErr()) {
+        expect(NotFoundError.is(result.error)).toBe(true);
+        expect(result.error.message).toContain("/nonexistent/path/file.img");
+      }
     });
   });
 
@@ -150,14 +168,18 @@ describe("Path Validation", () => {
     it("rejects kernel path with traversal", async () => {
       const result = await validateKernelPath("/../etc/passwd");
       expect(result.isErr()).toBe(true);
-      expect(PathTraversalError.is(result.error)).toBe(true);
+      if (result.isErr()) {
+        expect(PathTraversalError.is(result.error)).toBe(true);
+      }
     });
 
     it("returns ValidationError for non-existent kernel", async () => {
       const result = await validateKernelPath("/nonexistent/vmlinux");
       expect(result.isErr()).toBe(true);
-      expect(ValidationError.is(result.error)).toBe(true);
-      expect(result.error.message).toContain("Kernel image not found");
+      if (result.isErr()) {
+        expect(ValidationError.is(result.error)).toBe(true);
+        expect(result.error.message).toContain("Kernel image not found");
+      }
     });
   });
 
@@ -188,14 +210,18 @@ describe("Path Validation", () => {
     it("rejects rootfs path with traversal", async () => {
       const result = await validateRootfsPath("/../etc/passwd");
       expect(result.isErr()).toBe(true);
-      expect(PathTraversalError.is(result.error)).toBe(true);
+      if (result.isErr()) {
+        expect(PathTraversalError.is(result.error)).toBe(true);
+      }
     });
 
     it("returns ValidationError for non-existent rootfs", async () => {
       const result = await validateRootfsPath("/nonexistent/rootfs.ext4");
       expect(result.isErr()).toBe(true);
-      expect(ValidationError.is(result.error)).toBe(true);
-      expect(result.error.message).toContain("Rootfs image not found");
+      if (result.isErr()) {
+        expect(ValidationError.is(result.error)).toBe(true);
+        expect(result.error.message).toContain("Rootfs image not found");
+      }
     });
   });
 
@@ -237,19 +263,25 @@ describe("Path Validation", () => {
     it("fails fast on invalid kernel path", async () => {
       const result = await validateMachinePaths("/../etc/passwd", rootfsFile);
       expect(result.isErr()).toBe(true);
-      expect(PathTraversalError.is(result.error)).toBe(true);
+      if (result.isErr()) {
+        expect(PathTraversalError.is(result.error)).toBe(true);
+      }
     });
 
     it("fails on invalid rootfs path after validating kernel", async () => {
       const result = await validateMachinePaths(kernelFile, "/../etc/passwd");
       expect(result.isErr()).toBe(true);
-      expect(PathTraversalError.is(result.error)).toBe(true);
+      if (result.isErr()) {
+        expect(PathTraversalError.is(result.error)).toBe(true);
+      }
     });
 
     it("returns error for non-existent kernel", async () => {
       const result = await validateMachinePaths("/nonexistent/vmlinux", rootfsFile);
       expect(result.isErr()).toBe(true);
-      expect(ValidationError.is(result.error)).toBe(true);
+      if (result.isErr()) {
+        expect(ValidationError.is(result.error)).toBe(true);
+      }
     });
   });
 });

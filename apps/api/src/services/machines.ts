@@ -8,7 +8,6 @@ import {
   ValidationError,
   VsockError,
   RuntimeError,
-  PathTraversalError,
   type HyperfleetError,
 } from "@hyperfleet/errors";
 import { validateMachinePaths, sanitizePath } from "./validation";

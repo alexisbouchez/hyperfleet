@@ -50,7 +50,9 @@ describe("withRetry", () => {
     });
 
     expect(result.isErr()).toBe(true);
-    expect(result.error.message).toBe("Attempt 3 failed");
+    if (result.isErr()) {
+      expect(result.error.message).toBe("Attempt 3 failed");
+    }
     expect(attempts).toBe(3);
   });
 
@@ -207,10 +209,12 @@ describe("withRetryThrows", () => {
     );
 
     expect(result.isErr()).toBe(true);
-    expect(result.error).toEqual({
-      type: "wrapped",
-      message: "Error: Original",
-    });
+    if (result.isErr()) {
+      expect(result.error).toEqual({
+        type: "wrapped",
+        message: "Error: Original",
+      });
+    }
   });
 
   it("respects custom retryOn predicate", async () => {

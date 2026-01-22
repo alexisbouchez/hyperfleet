@@ -75,8 +75,10 @@ describe("CircuitBreaker", () => {
       );
 
       expect(result.isErr()).toBe(true);
-      expect(CircuitOpenError.is(result.error)).toBe(true);
-      expect((result.error as CircuitOpenError).retryAfterMs).toBeGreaterThan(0);
+      if (result.isErr()) {
+        expect(CircuitOpenError.is(result.error)).toBe(true);
+        expect((result.error as CircuitOpenError).retryAfterMs).toBeGreaterThan(0);
+      }
     });
 
     it("includes retry after time in error", async () => {
@@ -85,8 +87,10 @@ describe("CircuitBreaker", () => {
       );
 
       expect(result.isErr()).toBe(true);
-      const error = result.error as CircuitOpenError;
-      expect(error.retryAfterMs).toBeLessThanOrEqual(100);
+      if (result.isErr()) {
+        const error = result.error as CircuitOpenError;
+        expect(error.retryAfterMs).toBeLessThanOrEqual(100);
+      }
     });
 
     it("transitions to half-open after reset timeout", async () => {
@@ -162,10 +166,12 @@ describe("CircuitBreaker", () => {
       );
 
       expect(result.isErr()).toBe(true);
-      expect(result.error).toEqual({
-        wrapped: true,
-        message: "Error: original",
-      });
+      if (result.isErr()) {
+        expect(result.error).toEqual({
+          wrapped: true,
+          message: "Error: original",
+        });
+      }
     });
 
     it("counts failures and opens circuit", async () => {
@@ -194,7 +200,9 @@ describe("CircuitBreaker", () => {
       );
 
       expect(result.isErr()).toBe(true);
-      expect(CircuitOpenError.is(result.error)).toBe(true);
+      if (result.isErr()) {
+        expect(CircuitOpenError.is(result.error)).toBe(true);
+      }
     });
   });
 

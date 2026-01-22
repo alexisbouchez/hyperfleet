@@ -21,8 +21,10 @@ describe("withTimeout", () => {
     const result = await withTimeout(slowPromise, 50);
 
     expect(result.isErr()).toBe(true);
-    expect(TimeoutError.is(result.error)).toBe(true);
-    expect(result.error.message).toContain("timed out after 50ms");
+    if (result.isErr()) {
+      expect(TimeoutError.is(result.error)).toBe(true);
+      expect(result.error.message).toContain("timed out after 50ms");
+    }
   });
 
   it("uses custom error message when provided", async () => {
@@ -37,7 +39,9 @@ describe("withTimeout", () => {
     );
 
     expect(result.isErr()).toBe(true);
-    expect(result.error.message).toBe("Custom timeout message");
+    if (result.isErr()) {
+      expect(result.error.message).toBe("Custom timeout message");
+    }
   });
 
   it("handles promise rejection", async () => {
@@ -46,13 +50,15 @@ describe("withTimeout", () => {
     const result = await withTimeout(failingPromise, 1000);
 
     expect(result.isErr()).toBe(true);
-    // When the promise itself rejects, it should wrap as TimeoutError
-    expect(TimeoutError.is(result.error)).toBe(true);
+    if (result.isErr()) {
+      // When the promise itself rejects, it should wrap as TimeoutError
+      expect(TimeoutError.is(result.error)).toBe(true);
+    }
   });
 
   it("clears timeout when promise resolves quickly", async () => {
     // This test ensures we don't have memory leaks from uncleared timeouts
-    const promises: Promise<unknown>[] = [];
+    const promises = [];
     for (let i = 0; i < 100; i++) {
       promises.push(withTimeout(Promise.resolve(i), 10000));
     }

@@ -41,6 +41,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@hyperfleet/errors": "workspace:*",
+        "@hyperfleet/resilience": "workspace:*",
         "@hyperfleet/runtime": "workspace:*",
         "better-result": "^2.5.1",
       },
@@ -53,6 +54,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@hyperfleet/errors": "workspace:*",
+        "@hyperfleet/resilience": "workspace:*",
         "@hyperfleet/runtime": "workspace:*",
         "better-result": "^2.5.1",
       },
@@ -66,12 +68,16 @@
       "dependencies": {
         "better-result": "^2.5.1",
       },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
     },
     "packages/firecracker": {
       "name": "@hyperfleet/firecracker",
       "version": "0.0.1",
       "dependencies": {
         "@hyperfleet/errors": "workspace:*",
+        "@hyperfleet/resilience": "workspace:*",
         "@hyperfleet/runtime": "workspace:*",
         "better-result": "^2.5.1",
       },
@@ -82,6 +88,17 @@
     "packages/logger": {
       "name": "@hyperfleet/logger",
       "version": "0.0.1",
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
+    "packages/resilience": {
+      "name": "@hyperfleet/resilience",
+      "version": "0.0.1",
+      "dependencies": {
+        "@hyperfleet/errors": "workspace:*",
+        "better-result": "^2.5.1",
+      },
       "devDependencies": {
         "@types/bun": "latest",
       },
@@ -150,6 +167,8 @@
     "@hyperfleet/firecracker": ["@hyperfleet/firecracker@workspace:packages/firecracker"],
 
     "@hyperfleet/logger": ["@hyperfleet/logger@workspace:packages/logger"],
+
+    "@hyperfleet/resilience": ["@hyperfleet/resilience@workspace:packages/resilience"],
 
     "@hyperfleet/runtime": ["@hyperfleet/runtime@workspace:packages/runtime"],
 

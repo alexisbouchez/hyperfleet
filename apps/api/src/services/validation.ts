@@ -11,6 +11,7 @@ import {
 const PATH_TRAVERSAL_PATTERNS = [
   /\.\./,           // Parent directory traversal
   /\.\.\\/, // Windows parent directory
+  // eslint-disable-next-line no-control-regex
   /\x00/,           // Null byte injection
   /%00/,            // URL-encoded null byte
   /%2e%2e/i,        // URL-encoded ..

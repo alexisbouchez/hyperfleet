@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
-import { createLogger, generateCorrelationId, type Logger } from "../index";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { createLogger, generateCorrelationId } from "../index";
 
 describe("createLogger", () => {
   let mockConsole: {
