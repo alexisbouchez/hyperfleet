@@ -18,4 +18,3 @@ export { withRetry, withRetryThrows } from "./retry.js";
 
 // Circuit breaker
 export { CircuitBreaker, CircuitOpenError } from "./circuit-breaker.js";
-export type { CircuitOpenError as CircuitOpenErrorType } from "./circuit-breaker.js";

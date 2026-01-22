@@ -1,21 +1,12 @@
-/* eslint-disable no-redeclare */
 import { Result } from "better-result";
-import { TaggedError } from "better-result";
+import { CircuitOpenError } from "@hyperfleet/errors";
 import {
   DEFAULT_CIRCUIT_BREAKER_OPTIONS,
   type CircuitBreakerOptions,
   type CircuitState,
 } from "./types.js";
 
-/**
- * Error thrown when circuit breaker is open
- */
-export const CircuitOpenError = TaggedError("CircuitOpenError")<{
-  message: string;
-  retryAfterMs: number;
-}>();
-
-export type CircuitOpenError = InstanceType<typeof CircuitOpenError>;
+export { CircuitOpenError };
 
 /**
  * Circuit breaker implementation for fault tolerance.

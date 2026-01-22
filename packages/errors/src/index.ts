@@ -64,6 +64,22 @@ export const RuntimeError = TaggedError("RuntimeError")<{
 
 export type RuntimeError = InstanceType<typeof RuntimeError>;
 
+// Path traversal errors (security)
+export const PathTraversalError = TaggedError("PathTraversalError")<{
+  message: string;
+  path: string;
+}>();
+
+export type PathTraversalError = InstanceType<typeof PathTraversalError>;
+
+// Circuit breaker errors
+export const CircuitOpenError = TaggedError("CircuitOpenError")<{
+  message: string;
+  retryAfterMs: number;
+}>();
+
+export type CircuitOpenError = InstanceType<typeof CircuitOpenError>;
+
 // Union type for all Hyperfleet errors
 export type HyperfleetError =
   | FirecrackerApiError
@@ -73,7 +89,9 @@ export type HyperfleetError =
   | ValidationError
   | TimeoutError
   | VsockError
-  | RuntimeError;
+  | RuntimeError
+  | PathTraversalError
+  | CircuitOpenError;
 
 /**
  * Get HTTP status code for an error
@@ -84,10 +102,14 @@ export function getHttpStatus(error: HyperfleetError): number {
       return 404;
     case "ValidationError":
       return 400;
+    case "PathTraversalError":
+      return 400;
     case "TimeoutError":
       return 504;
     case "VsockError":
       return 502;
+    case "CircuitOpenError":
+      return 503;
     case "FirecrackerApiError":
       return error.statusCode >= 500 ? 502 : 400;
     case "CloudHypervisorApiError":
