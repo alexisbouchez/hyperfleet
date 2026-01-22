@@ -4,7 +4,13 @@
  */
 
 import { Result } from "better-result";
-import { DockerCliError } from "@hyperfleet/errors";
+import { DockerCliError, TimeoutError } from "@hyperfleet/errors";
+import {
+  withRetry,
+  withTimeout,
+  CircuitBreaker,
+  type RetryOptions,
+} from "@hyperfleet/resilience";
 import type {
   ContainerInfo,
   ContainerInspect,
@@ -23,7 +29,43 @@ export interface DockerClientConfig {
    * Docker CLI binary path (defaults to "docker")
    */
   dockerBinary?: string;
+
+  /** Command timeout in milliseconds (default: 60000) */
+  timeoutMs?: number;
+
+  /** Retry options for transient failures */
+  retry?: Partial<RetryOptions>;
+
+  /** Enable circuit breaker (default: true) */
+  enableCircuitBreaker?: boolean;
 }
+
+/** Default retry options for Docker client */
+const DEFAULT_RETRY_OPTIONS: Partial<RetryOptions> = {
+  maxAttempts: 3,
+  initialDelayMs: 100,
+  maxDelayMs: 5000,
+  backoffMultiplier: 2,
+  jitter: true,
+  // Only retry on connection/daemon errors
+  retryOn: (error: unknown) => {
+    if (DockerCliError.is(error)) {
+      // Retry on daemon connection errors or exit code 125 (daemon issues)
+      const stderr = error.stderr.toLowerCase();
+      return (
+        error.exitCode === 125 ||
+        error.exitCode === -1 ||
+        stderr.includes("cannot connect") ||
+        stderr.includes("connection refused") ||
+        stderr.includes("daemon is not running")
+      );
+    }
+    if (TimeoutError.is(error)) {
+      return true;
+    }
+    return false;
+  },
+};
 
 /**
  * Docker client using CLI commands
@@ -32,53 +74,134 @@ export interface DockerClientConfig {
 export class DockerClient {
   private dockerBinary: string;
   private host?: string;
+  private readonly timeoutMs: number;
+  private readonly retryOptions: Partial<RetryOptions>;
+  private readonly circuitBreaker: CircuitBreaker | null;
 
   constructor(config: DockerClientConfig = {}) {
     this.dockerBinary = config.dockerBinary || "docker";
     this.host = config.host;
+    this.timeoutMs = config.timeoutMs ?? 60000;
+    this.retryOptions = { ...DEFAULT_RETRY_OPTIONS, ...config.retry };
+    this.circuitBreaker = config.enableCircuitBreaker !== false
+      ? new CircuitBreaker({
+          failureThreshold: 5,
+          resetTimeoutMs: 30000,
+          halfOpenSuccessThreshold: 2,
+        })
+      : null;
+  }
+
+  /**
+   * Get the current state of the circuit breaker
+   */
+  getCircuitState() {
+    return this.circuitBreaker?.getState() ?? "closed";
+  }
+
+  /**
+   * Reset the circuit breaker to closed state
+   */
+  resetCircuitBreaker() {
+    this.circuitBreaker?.reset();
   }
 
   private async exec(args: string[]): Promise<Result<{ stdout: string; stderr: string }, DockerCliError>> {
-    return Result.tryPromise({
-      try: async () => {
-        const cmdArgs = [...args];
+    const makeRequest = async (): Promise<Result<{ stdout: string; stderr: string }, DockerCliError>> => {
+      const timeoutResult = await withTimeout(
+        (async () => {
+          const cmdArgs = [...args];
 
-        if (this.host) {
-          cmdArgs.unshift("-H", this.host);
-        }
+          if (this.host) {
+            cmdArgs.unshift("-H", this.host);
+          }
 
-        const proc = Bun.spawn([this.dockerBinary, ...cmdArgs], {
-          stdout: "pipe",
-          stderr: "pipe",
-        });
-
-        const [stdout, stderr, exitCode] = await Promise.all([
-          new Response(proc.stdout).text(),
-          new Response(proc.stderr).text(),
-          proc.exited,
-        ]);
-
-        if (exitCode !== 0) {
-          throw new DockerCliError({
-            message: `Docker command failed: ${args.join(" ")}`,
-            exitCode,
-            stderr,
+          const proc = Bun.spawn([this.dockerBinary, ...cmdArgs], {
+            stdout: "pipe",
+            stderr: "pipe",
           });
-        }
 
-        return { stdout, stderr };
-      },
-      catch: (cause) => {
-        if (DockerCliError.is(cause)) {
-          return cause;
+          const [stdout, stderr, exitCode] = await Promise.all([
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text(),
+            proc.exited,
+          ]);
+
+          if (exitCode !== 0) {
+            throw new DockerCliError({
+              message: `Docker command failed: ${args.join(" ")}`,
+              exitCode,
+              stderr,
+            });
+          }
+
+          return { stdout, stderr };
+        })(),
+        this.timeoutMs,
+        `Docker command timed out after ${this.timeoutMs}ms`
+      );
+
+      if (timeoutResult.isErr()) {
+        return Result.err(
+          new DockerCliError({
+            message: timeoutResult.error.message,
+            exitCode: -1,
+            stderr: "",
+          })
+        );
+      }
+
+      return Result.ok(timeoutResult.unwrap());
+    };
+
+    // Wrap with retry logic
+    const retryableRequest = () =>
+      Result.tryPromise({
+        try: async () => {
+          const result = await makeRequest();
+          if (result.isErr()) {
+            throw result.error;
+          }
+          return result.unwrap();
+        },
+        catch: (cause) => {
+          if (DockerCliError.is(cause)) {
+            return cause;
+          }
+          return new DockerCliError({
+            message: cause instanceof Error ? cause.message : String(cause),
+            exitCode: -1,
+            stderr: "",
+          });
+        },
+      });
+
+    // Apply circuit breaker if enabled
+    if (this.circuitBreaker) {
+      const circuitResult = await this.circuitBreaker.call(() =>
+        withRetry(retryableRequest, this.retryOptions)
+      );
+
+      if (circuitResult.isErr()) {
+        // Convert CircuitOpenError to DockerCliError
+        const error = circuitResult.error;
+        if ("retryAfterMs" in error) {
+          return Result.err(
+            new DockerCliError({
+              message: error.message,
+              exitCode: 503,
+              stderr: JSON.stringify({ retryAfterMs: error.retryAfterMs }),
+            })
+          );
         }
-        return new DockerCliError({
-          message: cause instanceof Error ? cause.message : String(cause),
-          exitCode: -1,
-          stderr: "",
-        });
-      },
-    });
+        return circuitResult as Result<{ stdout: string; stderr: string }, DockerCliError>;
+      }
+
+      return circuitResult as Result<{ stdout: string; stderr: string }, DockerCliError>;
+    }
+
+    // Without circuit breaker, just retry
+    return withRetry(retryableRequest, this.retryOptions);
   }
 
   private async execJson<T>(args: string[]): Promise<Result<T, DockerCliError>> {

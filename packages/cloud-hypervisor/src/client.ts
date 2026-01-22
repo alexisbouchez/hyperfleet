@@ -4,7 +4,13 @@
  */
 
 import { Result } from "better-result";
-import { CloudHypervisorApiError } from "@hyperfleet/errors";
+import { CloudHypervisorApiError, TimeoutError } from "@hyperfleet/errors";
+import {
+  withRetry,
+  withTimeout,
+  CircuitBreaker,
+  type RetryOptions,
+} from "@hyperfleet/resilience";
 import type {
   VmConfig,
   VmInfo,
@@ -34,7 +40,33 @@ export interface CloudHypervisorClientConfig {
    * Path to the Cloud Hypervisor API socket
    */
   socketPath: string;
+  /** Request timeout in milliseconds (default: 30000) */
+  timeoutMs?: number;
+  /** Retry options for transient failures */
+  retry?: Partial<RetryOptions>;
+  /** Enable circuit breaker (default: true) */
+  enableCircuitBreaker?: boolean;
 }
+
+/** Default retry options for Cloud Hypervisor client */
+const DEFAULT_RETRY_OPTIONS: Partial<RetryOptions> = {
+  maxAttempts: 3,
+  initialDelayMs: 100,
+  maxDelayMs: 5000,
+  backoffMultiplier: 2,
+  jitter: true,
+  // Only retry on connection errors or 5xx errors
+  retryOn: (error: unknown) => {
+    if (CloudHypervisorApiError.is(error)) {
+      // Retry on 5xx errors or connection errors (status 0)
+      return error.statusCode === 0 || error.statusCode >= 500;
+    }
+    if (TimeoutError.is(error)) {
+      return true;
+    }
+    return false;
+  },
+};
 
 /**
  * Cloud Hypervisor API client
@@ -42,9 +74,35 @@ export interface CloudHypervisorClientConfig {
  */
 export class CloudHypervisorClient {
   private socketPath: string;
+  private readonly timeoutMs: number;
+  private readonly retryOptions: Partial<RetryOptions>;
+  private readonly circuitBreaker: CircuitBreaker | null;
 
   constructor(config: CloudHypervisorClientConfig) {
     this.socketPath = config.socketPath;
+    this.timeoutMs = config.timeoutMs ?? 30000;
+    this.retryOptions = { ...DEFAULT_RETRY_OPTIONS, ...config.retry };
+    this.circuitBreaker = config.enableCircuitBreaker !== false
+      ? new CircuitBreaker({
+          failureThreshold: 5,
+          resetTimeoutMs: 30000,
+          halfOpenSuccessThreshold: 2,
+        })
+      : null;
+  }
+
+  /**
+   * Get the current state of the circuit breaker
+   */
+  getCircuitState() {
+    return this.circuitBreaker?.getState() ?? "closed";
+  }
+
+  /**
+   * Reset the circuit breaker to closed state
+   */
+  resetCircuitBreaker() {
+    this.circuitBreaker?.reset();
   }
 
   /**
@@ -55,59 +113,114 @@ export class CloudHypervisorClient {
     path: string,
     body?: unknown
   ): Promise<Result<T, CloudHypervisorApiError>> {
-    return Result.tryPromise({
-      try: async () => {
-        const url = `unix://${this.socketPath}:http://localhost/api/v1${path}`;
+    const makeRequest = async (): Promise<Result<T, CloudHypervisorApiError>> => {
+      const timeoutResult = await withTimeout(
+        (async () => {
+          const url = `unix://${this.socketPath}:http://localhost/api/v1${path}`;
 
-        const headers: Record<string, string> = {
-          Accept: "application/json",
-        };
+          const headers: Record<string, string> = {
+            Accept: "application/json",
+          };
 
-        let requestBody: string | undefined;
-        if (body !== undefined) {
-          headers["Content-Type"] = "application/json";
-          requestBody = JSON.stringify(body);
-        }
+          let requestBody: string | undefined;
+          if (body !== undefined) {
+            headers["Content-Type"] = "application/json";
+            requestBody = JSON.stringify(body);
+          }
 
-        const response = await fetch(url, {
-          method,
-          headers,
-          body: requestBody,
-          unix: this.socketPath,
-        } as globalThis.RequestInit & { unix: string });
+          const response = await fetch(url, {
+            method,
+            headers,
+            body: requestBody,
+            unix: this.socketPath,
+          } as globalThis.RequestInit & { unix: string });
 
-        if (!response.ok) {
-          const errorBody = await response.text().catch(() => "");
-          throw new CloudHypervisorApiError({
-            message: `Cloud Hypervisor API error: ${response.status} ${response.statusText}`,
-            statusCode: response.status,
-            body: errorBody,
+          if (!response.ok) {
+            const errorBody = await response.text().catch(() => "");
+            throw new CloudHypervisorApiError({
+              message: `Cloud Hypervisor API error: ${response.status} ${response.statusText}`,
+              statusCode: response.status,
+              body: errorBody,
+            });
+          }
+
+          // Handle 204 No Content
+          if (response.status === 204) {
+            return undefined as T;
+          }
+
+          const text = await response.text();
+          if (!text) {
+            return undefined as T;
+          }
+
+          return JSON.parse(text) as T;
+        })(),
+        this.timeoutMs,
+        `Cloud Hypervisor API request timed out after ${this.timeoutMs}ms`
+      );
+
+      if (timeoutResult.isErr()) {
+        return Result.err(
+          new CloudHypervisorApiError({
+            message: timeoutResult.error.message,
+            statusCode: 0,
+            body: "",
+          })
+        );
+      }
+
+      return Result.ok(timeoutResult.unwrap());
+    };
+
+    // Wrap with retry logic
+    const retryableRequest = () =>
+      Result.tryPromise({
+        try: async () => {
+          const result = await makeRequest();
+          if (result.isErr()) {
+            throw result.error;
+          }
+          return result.unwrap();
+        },
+        catch: (cause) => {
+          if (CloudHypervisorApiError.is(cause)) {
+            return cause;
+          }
+          return new CloudHypervisorApiError({
+            message: cause instanceof Error ? cause.message : String(cause),
+            statusCode: 0,
+            body: "",
           });
-        }
+        },
+      });
 
-        // Handle 204 No Content
-        if (response.status === 204) {
-          return undefined as T;
-        }
+    // Apply circuit breaker if enabled
+    if (this.circuitBreaker) {
+      const circuitResult = await this.circuitBreaker.call(() =>
+        withRetry(retryableRequest, this.retryOptions)
+      );
 
-        const text = await response.text();
-        if (!text) {
-          return undefined as T;
+      if (circuitResult.isErr()) {
+        // Convert CircuitOpenError to CloudHypervisorApiError
+        const error = circuitResult.error;
+        if ("retryAfterMs" in error) {
+          return Result.err(
+            new CloudHypervisorApiError({
+              message: error.message,
+              statusCode: 503,
+              body: JSON.stringify({ retryAfterMs: error.retryAfterMs }),
+            })
+          );
         }
+        return circuitResult as Result<T, CloudHypervisorApiError>;
+      }
 
-        return JSON.parse(text) as T;
-      },
-      catch: (cause) => {
-        if (CloudHypervisorApiError.is(cause)) {
-          return cause;
-        }
-        return new CloudHypervisorApiError({
-          message: cause instanceof Error ? cause.message : String(cause),
-          statusCode: 0,
-          body: "",
-        });
-      },
-    });
+      return circuitResult as Result<T, CloudHypervisorApiError>;
+    }
+
+    // Without circuit breaker, just retry
+    return withRetry(retryableRequest, this.retryOptions);
   }
 
   // ============================================
