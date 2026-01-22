@@ -14,60 +14,31 @@ import { Result } from "better-result";
 
 // Socket constants
 const AF_NETLINK = 16;
-const SOCK_RAW = 3;
 const SOCK_DGRAM = 2;
 const NETLINK_ROUTE = 0;
 
 // Netlink message types (rtnetlink)
 const RTM_NEWADDR = 20;
 const RTM_DELADDR = 21;
-const RTM_GETADDR = 22;
-const RTM_NEWROUTE = 24;
-const RTM_DELROUTE = 25;
-const RTM_NEWLINK = 16;
-const RTM_SETLINK = 19;
 
 // Netlink flags
 const NLM_F_REQUEST = 0x01;
 const NLM_F_ACK = 0x04;
 const NLM_F_CREATE = 0x400;
 const NLM_F_EXCL = 0x200;
-const NLM_F_REPLACE = 0x100;
 
 // Address families
 const AF_INET = 2;
-const AF_INET6 = 10;
 
 // Interface flags
 const IFF_UP = 0x1;
 const IFF_RUNNING = 0x40;
 
-// Route table
-const RT_TABLE_MAIN = 254;
-const RT_SCOPE_UNIVERSE = 0;
-const RT_SCOPE_LINK = 253;
-const RTN_UNICAST = 1;
-const RTPROT_STATIC = 4;
-
 // Attribute types for addresses
-const IFA_ADDRESS = 1;
 const IFA_LOCAL = 2;
-const IFA_LABEL = 3;
 const IFA_BROADCAST = 4;
 
-// Attribute types for routes
-const RTA_DST = 1;
-const RTA_GATEWAY = 5;
-const RTA_OIF = 4;
-
-// Attribute types for links
-const IFLA_IFNAME = 3;
-const IFLA_MTU = 4;
-const IFLA_LINK = 5;
-const IFLA_OPERSTATE = 16;
-
-// ioctl for getting interface index
-const SIOCGIFINDEX = 0x8933;
+// ioctl for getting/setting interface flags
 const SIOCGIFFLAGS = 0x8913;
 const SIOCSIFFLAGS = 0x8914;
 

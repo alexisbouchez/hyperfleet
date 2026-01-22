@@ -17,7 +17,6 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Machine, type MachineConfig } from "../../machine";
-import { FirecrackerClient } from "../../client";
 
 // Check if we can run VM tests
 async function isKvmAvailable(): Promise<boolean> {

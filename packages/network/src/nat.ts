@@ -49,7 +49,6 @@ const libc = dlopen("libc.so.6", {
 
 const O_RDONLY = 0;
 const O_WRONLY = 1;
-const O_RDWR = 2;
 
 /**
  * Enable or disable IP forwarding
@@ -206,8 +205,10 @@ export async function applyNFTables(config: NFTablesConfig): Promise<Result<void
   } finally {
     // Clean up temp file
     try {
-      await Bun.file(tempFile).exists() &&
+      const exists = await Bun.file(tempFile).exists();
+      if (exists) {
         Bun.spawn(["rm", "-f", tempFile]);
+      }
     } catch {
       // Ignore cleanup errors
     }

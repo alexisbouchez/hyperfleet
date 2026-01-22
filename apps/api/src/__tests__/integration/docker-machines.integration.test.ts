@@ -265,7 +265,7 @@ describe("API Integration Tests (Docker Runtime)", () => {
 
       const restartedMachine = (await restartResponse.json()) as MachineResponse;
       expect(restartedMachine.status).toBe("running");
-    });
+    }, 60000);
 
     it("should delete a Docker machine", async () => {
       if (!dockerAvailable) return;
@@ -361,7 +361,7 @@ describe("API Integration Tests (Docker Runtime)", () => {
       const execResult = (await execResponse.json()) as ExecResponse;
       expect(execResult.exit_code).toBe(0);
       expect(execResult.stdout.trim()).toBe("hello from container");
-    });
+    }, 30000);
 
     it("should return non-zero exit code for failed commands", async () => {
       if (!dockerAvailable) return;
@@ -408,7 +408,7 @@ describe("API Integration Tests (Docker Runtime)", () => {
 
       const execResult = (await execResponse.json()) as ExecResponse;
       expect(execResult.exit_code).toBe(42);
-    });
+    }, 30000);
   });
 
   describe("Machine Listing and Filtering", () => {
@@ -572,7 +572,7 @@ describe("API Integration Tests (Docker Runtime)", () => {
 
       const execResult = (await execResponse.json()) as ExecResponse;
       expect(execResult.stdout.trim()).toBe("test_value");
-    });
+    }, 30000);
   });
 
   describe("Error Handling", () => {

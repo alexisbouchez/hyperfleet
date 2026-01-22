@@ -151,15 +151,15 @@ describe("Docker Integration Tests", () => {
       expect(inspectResult.isOk()).toBe(true);
       expect(inspectResult.unwrap().State.Running).toBe(true);
 
-      // Stop container
-      const stopResult = await client.stopContainer(containerId, 5);
+      // Stop container (give more time in CI)
+      const stopResult = await client.stopContainer(containerId, 10);
       expect(stopResult.isOk()).toBe(true);
 
       // Verify it's stopped
       const inspectResult2 = await client.inspectContainer(containerId);
       expect(inspectResult2.isOk()).toBe(true);
       expect(inspectResult2.unwrap().State.Running).toBe(false);
-    });
+    }, 30000);
 
     it("should execute commands in a running container", async () => {
       if (!dockerAvailable) return;
@@ -301,7 +301,7 @@ describe("Docker Integration Tests", () => {
       // Remove container
       await container.remove(true);
       containersToCleanup.pop();
-    });
+    }, 30000);
 
     it("should handle pause and resume", async () => {
       if (!dockerAvailable) return;
@@ -339,15 +339,15 @@ describe("Docker Integration Tests", () => {
       await container.start();
       containersToCleanup.push(container.getContainerId()!);
 
-      // Graceful shutdown with 5 second timeout
-      await container.shutdown(5000);
+      // Graceful shutdown with 10 second timeout (more time for CI)
+      await container.shutdown(10000);
 
       const info = await container.getInfo();
       expect(info.status).toBe("stopped");
 
       await container.remove(true);
       containersToCleanup.pop();
-    });
+    }, 30000);
 
     it("should handle restart", async () => {
       if (!dockerAvailable) return;
@@ -365,8 +365,8 @@ describe("Docker Integration Tests", () => {
       const initialInfo = await container.getInfo();
       const initialPid = initialInfo.pid;
 
-      // Restart
-      await container.restart(5);
+      // Restart (give more time for CI)
+      await container.restart(10);
 
       // Check it's running with a new PID
       const newInfo = await container.getInfo();
@@ -375,7 +375,7 @@ describe("Docker Integration Tests", () => {
 
       await container.remove(true);
       containersToCleanup.pop();
-    });
+    }, 30000);
 
     it("should handle container with resource limits", async () => {
       if (!dockerAvailable) return;

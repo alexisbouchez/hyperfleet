@@ -10,7 +10,7 @@ import {
   RuntimeError,
   type HyperfleetError,
 } from "@hyperfleet/errors";
-import { NetworkManager, getNetworkManager, type VMNetworkConfig } from "@hyperfleet/network";
+import { NetworkManager, type VMNetworkConfig } from "@hyperfleet/network";
 import { validateMachinePaths, sanitizePath } from "./validation";
 import type { CreateMachineBody, MachineResponse, ExecBody, ExecResponse, NetworkConfig } from "../types";
 import { RuntimeFactory } from "./runtime-factory";

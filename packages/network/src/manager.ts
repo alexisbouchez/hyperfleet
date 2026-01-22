@@ -37,8 +37,6 @@ import {
 } from "./netlink";
 import {
   IPAM,
-  createDefaultIPAM,
-  type IPAllocation,
   IPAMError,
 } from "./ipam";
 import {
@@ -107,10 +105,6 @@ export class NetworkManager {
       enableNAT: config.enableNAT ?? true,
       externalInterface: config.externalInterface ?? "",
     };
-
-    // Parse subnet to get prefix length
-    const [, prefixStr] = this.config.subnet.split("/");
-    const prefixLen = parseInt(prefixStr, 10);
 
     this.ipam = new IPAM({
       cidr: this.config.subnet,

@@ -7,7 +7,7 @@
  * This implementation uses Bun's FFI to call ioctl directly, avoiding shell commands.
  */
 
-import { dlopen, FFIType, ptr, toBuffer, toArrayBuffer } from "bun:ffi";
+import { dlopen, FFIType, ptr } from "bun:ffi";
 import { Result } from "better-result";
 
 // ioctl constants for TUN/TAP (Linux x86_64)
@@ -17,7 +17,6 @@ const TUNSETOWNER = 0x400454cc;
 const TUNSETGROUP = 0x400454ce;
 
 // Interface flags
-const IFF_TUN = 0x0001;
 const IFF_TAP = 0x0002;
 const IFF_NO_PI = 0x1000; // Don't include packet info header
 const IFF_MULTI_QUEUE = 0x0100;
@@ -63,15 +62,6 @@ export class TapError extends Error {
   static is(error: unknown): error is TapError {
     return error instanceof TapError;
   }
-}
-
-/**
- * Get the last errno and its string representation
- */
-function getLastError(): { code: number; message: string } {
-  // In a real implementation, we'd access errno properly
-  // For now, we return a generic error
-  return { code: -1, message: "Operation failed" };
 }
 
 /**
