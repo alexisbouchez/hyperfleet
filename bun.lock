@@ -18,7 +18,9 @@
       "version": "0.0.1",
       "dependencies": {
         "@elysiajs/swagger": "^1.3.0",
+        "@hyperfleet/docker": "workspace:*",
         "@hyperfleet/firecracker": "workspace:*",
+        "@hyperfleet/runtime": "workspace:*",
         "@hyperfleet/worker": "workspace:*",
         "elysia": "^1.3.0",
         "nanoid": "^5.0.0",
@@ -27,8 +29,28 @@
         "@types/bun": "latest",
       },
     },
+    "packages/docker": {
+      "name": "@hyperfleet/docker",
+      "version": "0.0.1",
+      "dependencies": {
+        "@hyperfleet/runtime": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
     "packages/firecracker": {
       "name": "@hyperfleet/firecracker",
+      "version": "0.0.1",
+      "dependencies": {
+        "@hyperfleet/runtime": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
+    "packages/runtime": {
+      "name": "@hyperfleet/runtime",
       "version": "0.0.1",
       "devDependencies": {
         "@types/bun": "latest",
@@ -78,7 +100,11 @@
 
     "@hyperfleet/api": ["@hyperfleet/api@workspace:apps/api"],
 
+    "@hyperfleet/docker": ["@hyperfleet/docker@workspace:packages/docker"],
+
     "@hyperfleet/firecracker": ["@hyperfleet/firecracker@workspace:packages/firecracker"],
+
+    "@hyperfleet/runtime": ["@hyperfleet/runtime@workspace:packages/runtime"],
 
     "@hyperfleet/worker": ["@hyperfleet/worker@workspace:packages/worker"],
 

@@ -13,14 +13,21 @@ export type MachineStatus =
   | "failed";
 
 /**
+ * Runtime type enum
+ */
+export type RuntimeType = "firecracker" | "docker";
+
+/**
  * Machines table schema
  */
 export interface MachinesTable {
   id: string;
   name: string;
   status: MachineStatus;
+  runtime_type: RuntimeType;
   vcpu_count: number;
   mem_size_mib: number;
+  // Firecracker-specific fields
   kernel_image_path: string;
   kernel_args: string | null;
   rootfs_path: string | null;
@@ -29,6 +36,10 @@ export interface MachinesTable {
   tap_ip: string | null;
   guest_ip: string | null;
   guest_mac: string | null;
+  // Docker-specific fields
+  container_id: string | null;
+  image: string | null;
+  // Common fields
   pid: number | null;
   config_json: string;
   error_message: string | null;

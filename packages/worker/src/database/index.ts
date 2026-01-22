@@ -11,6 +11,7 @@ export type {
   NewMachine,
   MachineUpdate,
   MachineStatus,
+  RuntimeType,
 } from "./schema";
 
 // Migrations

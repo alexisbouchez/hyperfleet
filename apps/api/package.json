@@ -12,7 +12,9 @@
     "@elysiajs/swagger": "^1.3.0",
     "nanoid": "^5.0.0",
     "@hyperfleet/worker": "workspace:*",
-    "@hyperfleet/firecracker": "workspace:*"
+    "@hyperfleet/firecracker": "workspace:*",
+    "@hyperfleet/docker": "workspace:*",
+    "@hyperfleet/runtime": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest"

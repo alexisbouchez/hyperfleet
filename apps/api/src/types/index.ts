@@ -1,4 +1,4 @@
-import type { MachineStatus } from "@hyperfleet/worker/database";
+import type { MachineStatus, RuntimeType } from "@hyperfleet/worker/database";
 
 /**
  * Network configuration for a machine
@@ -11,10 +11,55 @@ export interface NetworkConfig {
 }
 
 /**
- * Request body for creating a new machine
+ * Port mapping for Docker containers
  */
-export interface CreateMachineBody {
+export interface PortMapping {
+  host_port: number;
+  container_port: number;
+  protocol?: "tcp" | "udp";
+}
+
+/**
+ * Volume mount for Docker containers
+ */
+export interface VolumeMount {
+  host_path: string;
+  container_path: string;
+  read_only?: boolean;
+}
+
+/**
+ * Docker-specific configuration
+ */
+export interface DockerConfig {
+  image: string;
+  cmd?: string[];
+  entrypoint?: string;
+  env?: Record<string, string>;
+  ports?: PortMapping[];
+  volumes?: VolumeMount[];
+  working_dir?: string;
+  user?: string;
+  privileged?: boolean;
+  restart?: "no" | "always" | "on-failure" | "unless-stopped";
+}
+
+/**
+ * Firecracker-specific configuration
+ */
+export interface FirecrackerConfig {
+  kernel_image_path: string;
+  kernel_args?: string;
+  rootfs_path?: string;
+  network?: NetworkConfig;
+}
+
+/**
+ * Request body for creating a new Firecracker machine
+ */
+export interface CreateFirecrackerMachineBody {
   name: string;
+  runtime_type: "firecracker";
   vcpu_count: number;
   mem_size_mib: number;
   kernel_image_path: string;
@@ -24,10 +69,57 @@ export interface CreateMachineBody {
 }
 
 /**
+ * Request body for creating a new Docker container
+ */
+export interface CreateDockerMachineBody {
+  name: string;
+  runtime_type: "docker";
+  vcpu_count?: number;
+  mem_size_mib?: number;
+  image: string;
+  cmd?: string[];
+  entrypoint?: string;
+  env?: Record<string, string>;
+  ports?: PortMapping[];
+  volumes?: VolumeMount[];
+  working_dir?: string;
+  user?: string;
+  privileged?: boolean;
+  restart?: "no" | "always" | "on-failure" | "unless-stopped";
+}
+
+/**
+ * Request body for creating a new machine (legacy - defaults to firecracker)
+ */
+export interface CreateMachineBody {
+  name: string;
+  runtime_type?: RuntimeType;
+  vcpu_count: number;
+  mem_size_mib: number;
+  // Firecracker fields
+  kernel_image_path: string;
+  kernel_args?: string;
+  rootfs_path?: string;
+  network?: NetworkConfig;
+  // Docker fields
+  image?: string;
+  cmd?: string[];
+  entrypoint?: string;
+  env?: Record<string, string>;
+  ports?: PortMapping[];
+  volumes?: VolumeMount[];
+  working_dir?: string;
+  user?: string;
+  privileged?: boolean;
+  restart?: "no" | "always" | "on-failure" | "unless-stopped";
+}
+
+/**
  * Query params for listing machines
  */
 export interface ListMachinesQuery {
   status?: MachineStatus;
+  runtime_type?: RuntimeType;
 }
 
 /**
@@ -37,12 +129,18 @@ export interface MachineResponse {
   id: string;
   name: string;
   status: MachineStatus;
+  runtime_type: RuntimeType;
   vcpu_count: number;
   mem_size_mib: number;
+  // Firecracker-specific
   kernel_image_path: string;
   kernel_args: string | null;
   rootfs_path: string | null;
   network: NetworkConfig | null;
+  // Docker-specific
+  image: string | null;
+  container_id: string | null;
+  // Common
   pid: number | null;
   created_at: string;
   updated_at: string;

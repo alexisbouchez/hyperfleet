@@ -5,6 +5,9 @@
  * Inspired by firecracker-go-sdk
  */
 
+// Re-export runtime types for convenience
+export type { Runtime, RuntimeInfo, ExecResult, RuntimeType, RuntimeStatus } from "@hyperfleet/runtime";
+
 // Models
 export * from "./models";
 

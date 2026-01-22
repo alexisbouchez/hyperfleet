@@ -1,6 +1,6 @@
 import net from "node:net";
 import { nanoid } from "nanoid";
-import type { Kysely, Database, MachineStatus, Machine } from "@hyperfleet/worker/database";
+import type { Kysely, Database, MachineStatus, Machine, RuntimeType } from "@hyperfleet/worker/database";
 import type { CreateMachineBody, MachineResponse, ExecBody, ExecResponse, NetworkConfig } from "../types";
 
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 30;
@@ -120,12 +120,15 @@ export class MachineService {
       id: machine.id,
       name: machine.name,
       status: machine.status,
+      runtime_type: machine.runtime_type,
       vcpu_count: machine.vcpu_count,
       mem_size_mib: machine.mem_size_mib,
       kernel_image_path: machine.kernel_image_path,
       kernel_args: machine.kernel_args,
       rootfs_path: machine.rootfs_path,
       network,
+      image: machine.image,
+      container_id: machine.container_id,
       pid: machine.pid,
       created_at: machine.created_at,
       updated_at: machine.updated_at,
@@ -133,13 +136,17 @@ export class MachineService {
   }
 
   /**
-   * List all machines, optionally filtered by status
+   * List all machines, optionally filtered by status and runtime_type
    */
-  async list(status?: MachineStatus): Promise<MachineResponse[]> {
+  async list(status?: MachineStatus, runtimeType?: RuntimeType): Promise<MachineResponse[]> {
     let query = this.db.selectFrom("machines").selectAll();
 
     if (status) {
       query = query.where("status", "=", status);
+    }
+
+    if (runtimeType) {
+      query = query.where("runtime_type", "=", runtimeType);
     }
 
     const machines = await query.orderBy("created_at", "desc").execute();
@@ -160,10 +167,23 @@ export class MachineService {
   }
 
   /**
-   * Create a new machine
+   * Create a new machine (supports both Firecracker and Docker)
    */
   async create(body: CreateMachineBody): Promise<MachineResponse> {
     const id = nanoid(12);
+    const runtimeType: RuntimeType = body.runtime_type || "firecracker";
+
+    if (runtimeType === "docker") {
+      return this.createDockerMachine(id, body);
+    }
+
+    return this.createFirecrackerMachine(id, body);
+  }
+
+  /**
+   * Create a new Firecracker machine
+   */
+  private async createFirecrackerMachine(id: string, body: CreateMachineBody): Promise<MachineResponse> {
     const socketPath = `/tmp/firecracker-${id}.sock`;
 
     const config = {
@@ -182,6 +202,7 @@ export class MachineService {
         id,
         name: body.name,
         status: "pending",
+        runtime_type: "firecracker",
         vcpu_count: body.vcpu_count,
         mem_size_mib: body.mem_size_mib,
         kernel_image_path: body.kernel_image_path,
@@ -192,6 +213,68 @@ export class MachineService {
         tap_ip: body.network?.tap_ip ?? null,
         guest_ip: body.network?.guest_ip ?? null,
         guest_mac: body.network?.guest_mac ?? null,
+        image: null,
+        container_id: null,
+        config_json: JSON.stringify(config),
+      })
+      .execute();
+
+    const machine = await this.get(id);
+    return machine!;
+  }
+
+  /**
+   * Create a new Docker container
+   */
+  private async createDockerMachine(id: string, body: CreateMachineBody): Promise<MachineResponse> {
+    if (!body.image) {
+      throw new Error("image is required for Docker runtime");
+    }
+
+    const config = {
+      id,
+      name: `hyperfleet-${id}`,
+      image: body.image,
+      cmd: body.cmd,
+      entrypoint: body.entrypoint,
+      cpus: body.vcpu_count,
+      memoryMib: body.mem_size_mib,
+      env: body.env,
+      ports: body.ports?.map(p => ({
+        hostPort: p.host_port,
+        containerPort: p.container_port,
+        protocol: p.protocol,
+      })),
+      volumes: body.volumes?.map(v => ({
+        hostPath: v.host_path,
+        containerPath: v.container_path,
+        readOnly: v.read_only,
+      })),
+      workingDir: body.working_dir,
+      user: body.user,
+      privileged: body.privileged,
+      restart: body.restart,
+    };
+
+    await this.db
+      .insertInto("machines")
+      .values({
+        id,
+        name: body.name,
+        status: "pending",
+        runtime_type: "docker",
+        vcpu_count: body.vcpu_count,
+        mem_size_mib: body.mem_size_mib,
+        kernel_image_path: "", // Not used for Docker
+        kernel_args: null,
+        rootfs_path: null,
+        socket_path: "", // Not used for Docker
+        tap_device: null,
+        tap_ip: null,
+        guest_ip: null,
+        guest_mac: null,
+        image: body.image,
+        container_id: null,
         config_json: JSON.stringify(config),
       })
       .execute();

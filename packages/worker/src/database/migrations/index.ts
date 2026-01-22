@@ -1,6 +1,7 @@
 import { Migrator, type Kysely, type Migration, type MigrationProvider } from "kysely";
 import * as migration001 from "./001_create_machines";
 import * as migration002 from "./002_add_rootfs_and_network";
+import * as migration003 from "./003_add_runtime_type";
 
 /**
  * Custom migration provider that bundles migrations inline
@@ -11,6 +12,7 @@ class InlineMigrationProvider implements MigrationProvider {
     return {
       "001_create_machines": migration001,
       "002_add_rootfs_and_network": migration002,
+      "003_add_runtime_type": migration003,
     };
   }
 }

@@ -4,6 +4,7 @@
  */
 
 import type { Subprocess } from "bun";
+import type { Runtime, RuntimeInfo, ExecResult } from "@hyperfleet/runtime";
 import { FirecrackerClient } from "./client";
 import type {
   Drive,
@@ -81,14 +82,15 @@ export function withHandlers(handlers: Handlers): MachineOpt {
   };
 }
 
-export class Machine {
+export class Machine implements Runtime {
+  readonly type = "firecracker" as const;
   readonly config: MachineConfig;
   client: FirecrackerClient;
   handlers: Handlers;
 
   private process: Subprocess | null = null;
   private started = false;
-  private pid: number | null = null;
+  private _pid: number | null = null;
 
   constructor(config: MachineConfig, ...opts: MachineOpt[]) {
     this.config = config;
@@ -98,6 +100,15 @@ export class Machine {
     for (const opt of opts) {
       opt(this);
     }
+  }
+
+  /**
+   * Get the unique identifier for this machine
+   */
+  get id(): string {
+    // Extract ID from socket path or use socket path as ID
+    const match = this.config.socketPath.match(/firecracker-([^.]+)\.sock/);
+    return match ? match[1] : this.config.socketPath;
   }
 
   /**
@@ -140,7 +151,7 @@ export class Machine {
       });
     }
 
-    this.pid = this.process.pid;
+    this._pid = this.process.pid;
 
     // Wait for socket to be ready
     await this.waitForSocket();
@@ -255,7 +266,7 @@ export class Machine {
    * Get the PID of the Firecracker process
    */
   getPid(): number | null {
-    return this.pid;
+    return this._pid;
   }
 
   /**
@@ -266,10 +277,96 @@ export class Machine {
   }
 
   /**
-   * Get instance info
+   * Get runtime information (implements Runtime interface)
+   */
+  async getInfo(): Promise<RuntimeInfo> {
+    const info = await this.getInstanceInfo();
+    return {
+      id: this.id,
+      status: info.state === "Running" ? "running" : info.state === "Paused" ? "paused" : "stopped",
+      pid: this._pid,
+    };
+  }
+
+  /**
+   * Get Firecracker instance info
    */
   async getInstanceInfo(): Promise<InstanceInfo> {
     return this.client.describeInstance();
+  }
+
+  /**
+   * Execute a command in the VM via vsock (implements Runtime interface)
+   */
+  async exec(cmd: string[], timeoutMs = 30000): Promise<ExecResult> {
+    const { vsock } = this.config;
+    if (!vsock?.uds_path) {
+      throw new Error("Vsock not configured - cannot execute commands");
+    }
+
+    // Dynamic import to avoid top-level import issues
+    const net = await import("node:net");
+
+    return new Promise((resolve, reject) => {
+      const socket = net.createConnection({ path: vsock.uds_path });
+      let settled = false;
+      let buffer = "";
+
+      const finish = (err?: Error, data?: string) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        socket.removeAllListeners();
+        socket.destroy();
+        if (err) {
+          reject(err);
+          return;
+        }
+        if (!data) {
+          reject(new Error("Empty response from vsock"));
+          return;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          resolve(parsed as ExecResult);
+        } catch {
+          reject(new Error("Invalid response from vsock"));
+        }
+      };
+
+      const timer = setTimeout(() => {
+        socket.destroy();
+        finish(new Error("Exec timeout"));
+      }, timeoutMs);
+
+      socket.setEncoding("utf8");
+
+      socket.on("connect", () => {
+        socket.end(`${JSON.stringify({ cmd, timeout: Math.floor(timeoutMs / 1000) })}\n`);
+      });
+
+      socket.on("data", (chunk: string) => {
+        buffer += chunk;
+        const newlineIndex = buffer.indexOf("\n");
+        if (newlineIndex !== -1) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          finish(undefined, line);
+        }
+      });
+
+      socket.on("end", () => {
+        const remaining = buffer.trim();
+        if (!remaining) {
+          finish(new Error("Empty response from vsock"));
+          return;
+        }
+        finish(undefined, remaining);
+      });
+
+      socket.on("error", (err: Error) => {
+        finish(err);
+      });
+    });
   }
 
   /**
