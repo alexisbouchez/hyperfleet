@@ -8,8 +8,10 @@ import {
   ValidationError,
   VsockError,
   RuntimeError,
+  PathTraversalError,
   type HyperfleetError,
 } from "@hyperfleet/errors";
+import { validateMachinePaths, sanitizePath } from "./validation";
 import type { CreateMachineBody, MachineResponse, ExecBody, ExecResponse, NetworkConfig } from "../types";
 import { RuntimeFactory } from "./runtime-factory";
 import { getGlobalRuntimeManager } from "./runtime-manager";
@@ -181,7 +183,7 @@ export class MachineService {
   /**
    * Create a new machine (supports Firecracker, Docker, and Cloud Hypervisor)
    */
-  async create(body: CreateMachineBody): Promise<MachineResponse> {
+  async create(body: CreateMachineBody): Promise<Result<MachineResponse, HyperfleetError>> {
     const id = nanoid(12);
     const runtimeType: RuntimeType = body.runtime_type || "firecracker";
 
@@ -199,14 +201,28 @@ export class MachineService {
   /**
    * Create a new Firecracker machine
    */
-  private async createFirecrackerMachine(id: string, body: CreateMachineBody): Promise<MachineResponse> {
+  private async createFirecrackerMachine(
+    id: string,
+    body: CreateMachineBody
+  ): Promise<Result<MachineResponse, HyperfleetError>> {
+    // Validate kernel and rootfs paths
+    const validationResult = await validateMachinePaths(
+      body.kernel_image_path,
+      body.rootfs_path
+    );
+
+    if (validationResult.isErr()) {
+      return validationResult as Result<never, HyperfleetError>;
+    }
+
+    const { kernelPath, rootfsPath } = validationResult.unwrap();
     const socketPath = `/tmp/firecracker-${id}.sock`;
 
     const config = {
       socketPath,
-      kernelImagePath: body.kernel_image_path,
+      kernelImagePath: kernelPath,
       kernelArgs: body.kernel_args,
-      rootfsPath: body.rootfs_path,
+      rootfsPath: rootfsPath,
       vcpuCount: body.vcpu_count,
       memSizeMib: body.mem_size_mib,
       network: body.network,
@@ -221,9 +237,9 @@ export class MachineService {
         runtime_type: "firecracker",
         vcpu_count: body.vcpu_count,
         mem_size_mib: body.mem_size_mib,
-        kernel_image_path: body.kernel_image_path,
+        kernel_image_path: kernelPath,
         kernel_args: body.kernel_args ?? null,
-        rootfs_path: body.rootfs_path ?? null,
+        rootfs_path: rootfsPath ?? null,
         socket_path: socketPath,
         tap_device: body.network?.tap_device ?? null,
         tap_ip: body.network?.tap_ip ?? null,
@@ -236,15 +252,30 @@ export class MachineService {
       .execute();
 
     const machine = await this.get(id);
-    return machine!;
+    return Result.ok(machine!);
   }
 
   /**
    * Create a new Docker container
    */
-  private async createDockerMachine(id: string, body: CreateMachineBody): Promise<MachineResponse> {
+  private async createDockerMachine(
+    id: string,
+    body: CreateMachineBody
+  ): Promise<Result<MachineResponse, HyperfleetError>> {
     if (!body.image) {
-      throw new Error("image is required for Docker runtime");
+      return Result.err(
+        new ValidationError({ message: "image is required for Docker runtime" })
+      );
+    }
+
+    // Validate volume host paths for path traversal
+    if (body.volumes) {
+      for (const volume of body.volumes) {
+        const pathResult = sanitizePath(volume.host_path);
+        if (pathResult.isErr()) {
+          return pathResult as Result<never, HyperfleetError>;
+        }
+      }
     }
 
     const config = {
@@ -256,12 +287,12 @@ export class MachineService {
       cpus: body.vcpu_count,
       memoryMib: body.mem_size_mib,
       env: body.env,
-      ports: body.ports?.map(p => ({
+      ports: body.ports?.map((p) => ({
         hostPort: p.host_port,
         containerPort: p.container_port,
         protocol: p.protocol,
       })),
-      volumes: body.volumes?.map(v => ({
+      volumes: body.volumes?.map((v) => ({
         hostPath: v.host_path,
         containerPath: v.container_path,
         readOnly: v.read_only,
@@ -296,19 +327,33 @@ export class MachineService {
       .execute();
 
     const machine = await this.get(id);
-    return machine!;
+    return Result.ok(machine!);
   }
 
   /**
    * Create a new Cloud Hypervisor machine
    */
-  private async createCloudHypervisorMachine(id: string, body: CreateMachineBody): Promise<MachineResponse> {
+  private async createCloudHypervisorMachine(
+    id: string,
+    body: CreateMachineBody
+  ): Promise<Result<MachineResponse, HyperfleetError>> {
+    // Validate kernel and rootfs paths
+    const validationResult = await validateMachinePaths(
+      body.kernel_image_path,
+      body.rootfs_path
+    );
+
+    if (validationResult.isErr()) {
+      return validationResult as Result<never, HyperfleetError>;
+    }
+
+    const { kernelPath, rootfsPath } = validationResult.unwrap();
     const socketPath = `/tmp/cloud-hypervisor-${id}.sock`;
 
     const config = {
       socketPath,
       payload: {
-        kernel: body.kernel_image_path,
+        kernel: kernelPath,
         cmdline: body.kernel_args,
       },
       cpus: {
@@ -318,15 +363,23 @@ export class MachineService {
       memory: {
         size: body.mem_size_mib * 1024 * 1024, // Convert MiB to bytes
       },
-      disks: body.rootfs_path ? [{
-        path: body.rootfs_path,
-        readonly: false,
-      }] : undefined,
-      net: body.network?.tap_device ? [{
-        tap: body.network.tap_device,
-        ip: body.network.tap_ip,
-        mac: body.network.guest_mac,
-      }] : undefined,
+      disks: rootfsPath
+        ? [
+            {
+              path: rootfsPath,
+              readonly: false,
+            },
+          ]
+        : undefined,
+      net: body.network?.tap_device
+        ? [
+            {
+              tap: body.network.tap_device,
+              ip: body.network.tap_ip,
+              mac: body.network.guest_mac,
+            },
+          ]
+        : undefined,
     };
 
     await this.db
@@ -338,9 +391,9 @@ export class MachineService {
         runtime_type: "cloud-hypervisor",
         vcpu_count: body.vcpu_count,
         mem_size_mib: body.mem_size_mib,
-        kernel_image_path: body.kernel_image_path,
+        kernel_image_path: kernelPath,
         kernel_args: body.kernel_args ?? null,
-        rootfs_path: body.rootfs_path ?? null,
+        rootfs_path: rootfsPath ?? null,
         socket_path: socketPath,
         tap_device: body.network?.tap_device ?? null,
         tap_ip: body.network?.tap_ip ?? null,
@@ -353,7 +406,7 @@ export class MachineService {
       .execute();
 
     const machine = await this.get(id);
-    return machine!;
+    return Result.ok(machine!);
   }
 
   /**

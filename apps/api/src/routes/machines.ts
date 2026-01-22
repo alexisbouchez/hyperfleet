@@ -145,9 +145,13 @@ export const machineRoutes = (disableAuth: boolean) =>
           return { error: "unauthorized", message: "Invalid or missing API key" };
         }
 
-        const machine = await machineService.create(body);
+        const result = await machineService.create(body);
+        if (result.isErr()) {
+          set.status = getHttpStatus(result.error);
+          return { error: result.error._tag, message: result.error.message };
+        }
         set.status = 201;
-        return machine;
+        return result.unwrap();
       },
       {
         body: t.Object({
