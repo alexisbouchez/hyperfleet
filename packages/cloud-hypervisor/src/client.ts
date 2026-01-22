@@ -81,7 +81,7 @@ export class CloudHypervisorClient {
       headers,
       body: requestBody,
       unix: this.socketPath,
-    } as RequestInit);
+    } as globalThis.RequestInit & { unix: string });
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "");
