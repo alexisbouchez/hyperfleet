@@ -11,12 +11,14 @@
     "elysia": "^1.3.0",
     "@elysiajs/swagger": "^1.3.0",
     "nanoid": "^5.0.0",
+    "better-result": "^2.5.1",
     "@hyperfleet/worker": "workspace:*",
     "@hyperfleet/firecracker": "workspace:*",
     "@hyperfleet/docker": "workspace:*",
     "@hyperfleet/cloud-hypervisor": "workspace:*",
     "@hyperfleet/runtime": "workspace:*",
-    "@hyperfleet/logger": "workspace:*"
+    "@hyperfleet/logger": "workspace:*",
+    "@hyperfleet/errors": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest"

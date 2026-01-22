@@ -1,7 +1,15 @@
 import net from "node:net";
 import { nanoid } from "nanoid";
+import { Result } from "better-result";
 import type { Kysely, Database, MachineStatus, Machine, RuntimeType } from "@hyperfleet/worker/database";
 import type { Logger } from "@hyperfleet/logger";
+import {
+  NotFoundError,
+  ValidationError,
+  VsockError,
+  RuntimeError,
+  type HyperfleetError,
+} from "@hyperfleet/errors";
 import type { CreateMachineBody, MachineResponse, ExecBody, ExecResponse, NetworkConfig } from "../types";
 import { RuntimeFactory } from "./runtime-factory";
 import { getGlobalRuntimeManager } from "./runtime-manager";
@@ -14,14 +22,6 @@ type MachineConfig = {
     guest_cid?: number;
   };
   exec_port?: number;
-};
-
-const safeJsonParse = (value: string): unknown => {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
 };
 
 const isExecResponse = (value: unknown): value is ExecResponse => {
@@ -38,36 +38,42 @@ const execViaVsock = (
   udsPath: string,
   payload: { cmd: string[]; timeout: number },
   timeoutMs: number
-): Promise<ExecResponse> =>
-  new Promise((resolve, reject) => {
+): Promise<Result<ExecResponse, VsockError>> =>
+  new Promise((resolve) => {
     const socket = net.createConnection({ path: udsPath });
     let settled = false;
     let buffer = "";
 
-    const finish = (err?: Error, data?: string) => {
+    const finish = (err?: VsockError, data?: string) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       socket.removeAllListeners();
+      socket.destroy();
       if (err) {
-        reject(err);
+        resolve(Result.err(err));
         return;
       }
       if (!data) {
-        reject(new Error("vsock_empty_response"));
+        resolve(Result.err(new VsockError({ message: "Empty response from vsock" })));
         return;
       }
-      const parsed = safeJsonParse(data);
+      const parseResult = Result.try(() => JSON.parse(data));
+      if (parseResult.isErr()) {
+        resolve(Result.err(new VsockError({ message: "Invalid JSON response from vsock" })));
+        return;
+      }
+      const parsed = parseResult.unwrap();
       if (!isExecResponse(parsed)) {
-        reject(new Error("vsock_invalid_response"));
+        resolve(Result.err(new VsockError({ message: "Invalid response format from vsock" })));
         return;
       }
-      resolve(parsed);
+      resolve(Result.ok(parsed));
     };
 
     const timer = setTimeout(() => {
       socket.destroy();
-      finish(new Error("vsock_timeout"));
+      finish(new VsockError({ message: "Vsock timeout" }));
     }, timeoutMs);
 
     socket.setEncoding("utf8");
@@ -88,14 +94,14 @@ const execViaVsock = (
     socket.on("end", () => {
       const remaining = buffer.trim();
       if (!remaining) {
-        finish(new Error("vsock_empty_response"));
+        finish(new VsockError({ message: "Empty response from vsock" }));
         return;
       }
       finish(undefined, remaining);
     });
 
     socket.on("error", (err) => {
-      finish(err);
+      finish(new VsockError({ message: `Vsock connection error: ${err.message}` }));
     });
   });
 
@@ -387,7 +393,7 @@ export class MachineService {
   /**
    * Start a machine - spawns the actual runtime process
    */
-  async start(id: string): Promise<MachineResponse | null> {
+  async start(id: string): Promise<Result<MachineResponse, HyperfleetError>> {
     // Get the raw machine record from DB (not the response format)
     const machineRecord = await this.db
       .selectFrom("machines")
@@ -395,11 +401,13 @@ export class MachineService {
       .where("id", "=", id)
       .executeTakeFirst();
 
-    if (!machineRecord) return null;
+    if (!machineRecord) {
+      return Result.err(new NotFoundError({ message: "Machine not found" }));
+    }
 
     if (machineRecord.status === "running") {
       this.logger?.info("Machine already running", { machineId: id });
-      return this.toResponse(machineRecord);
+      return Result.ok(this.toResponse(machineRecord));
     }
 
     // Update status to starting
@@ -409,104 +417,113 @@ export class MachineService {
       runtime: machineRecord.runtime_type,
     });
 
-    try {
-      // Create runtime instance from stored config
-      const factory = new RuntimeFactory(this.logger);
-      const runtime = factory.createFromMachine(machineRecord);
+    return Result.tryPromise({
+      try: async () => {
+        // Create runtime instance from stored config
+        const factory = new RuntimeFactory(this.logger);
+        const runtime = factory.createFromMachine(machineRecord);
 
-      // Start the runtime (spawns actual process)
-      await runtime.start();
+        // Start the runtime (spawns actual process)
+        await runtime.start();
 
-      // Get the PID/container ID
-      const pid = runtime.getPid();
+        // Get the PID/container ID
+        const pid = runtime.getPid();
 
-      // Register in the global runtime manager for later operations
-      const runtimeManager = getGlobalRuntimeManager(this.logger);
-      runtimeManager.register(id, runtime);
+        // Register in the global runtime manager for later operations
+        const runtimeManager = getGlobalRuntimeManager(this.logger);
+        runtimeManager.register(id, runtime);
 
-      // Update DB with running status and PID
-      const updated = await this.updateStatus(id, "running", {
-        pid: typeof pid === "number" ? pid : null,
-      });
+        // Update DB with running status and PID
+        const updated = await this.updateStatus(id, "running", {
+          pid: typeof pid === "number" ? pid : null,
+        });
 
-      // For Docker, also store the container ID
-      if (machineRecord.runtime_type === "docker" && typeof pid === "string") {
-        await this.db
-          .updateTable("machines")
-          .set({ container_id: pid })
-          .where("id", "=", id)
-          .execute();
-      }
+        // For Docker, also store the container ID
+        if (machineRecord.runtime_type === "docker" && typeof pid === "string") {
+          await this.db
+            .updateTable("machines")
+            .set({ container_id: pid })
+            .where("id", "=", id)
+            .execute();
+        }
 
-      this.logger?.info("Machine started successfully", { machineId: id, pid });
-      return updated;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger?.error("Failed to start machine", {
-        machineId: id,
-        error: message,
-      });
+        this.logger?.info("Machine started successfully", { machineId: id, pid });
+        return updated!;
+      },
+      catch: async (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger?.error("Failed to start machine", {
+          machineId: id,
+          error: message,
+        });
 
-      await this.updateStatus(id, "failed", { error_message: message });
-      throw error;
-    }
+        await this.updateStatus(id, "failed", { error_message: message });
+        return new RuntimeError({ message, cause: error });
+      },
+    });
   }
 
   /**
    * Stop a machine - stops the actual runtime process
+   * Note: This always succeeds (graceful degradation) - errors are logged but don't fail the operation
    */
-  async stop(id: string): Promise<MachineResponse | null> {
+  async stop(id: string): Promise<Result<MachineResponse, NotFoundError>> {
     const machine = await this.get(id);
-    if (!machine) return null;
+    if (!machine) {
+      return Result.err(new NotFoundError({ message: "Machine not found" }));
+    }
 
     if (machine.status === "stopped") {
       this.logger?.info("Machine already stopped", { machineId: id });
-      return machine;
+      return Result.ok(machine);
     }
 
     // Update status to stopping
     await this.updateStatus(id, "stopping");
     this.logger?.info("Stopping machine", { machineId: id });
 
-    try {
-      const runtimeManager = getGlobalRuntimeManager(this.logger);
-      const runtime = runtimeManager.get(id);
+    const runtimeManager = getGlobalRuntimeManager(this.logger);
+    const runtime = runtimeManager.get(id);
 
-      if (runtime) {
-        // Graceful shutdown with 10 second timeout
-        await runtime.shutdown(10000);
-        runtimeManager.remove(id);
-        this.logger?.info("Machine stopped successfully", { machineId: id });
-      } else {
-        this.logger?.warn("No runtime instance found, marking as stopped", {
+    if (runtime) {
+      // Graceful shutdown with 10 second timeout - catch errors but don't fail
+      const shutdownResult = await Result.tryPromise({
+        try: async () => {
+          await runtime.shutdown(10000);
+        },
+        catch: (error) => error,
+      });
+
+      if (shutdownResult.isErr()) {
+        const message = shutdownResult.error instanceof Error
+          ? shutdownResult.error.message
+          : String(shutdownResult.error);
+        this.logger?.error("Error during shutdown, forcing stop", {
           machineId: id,
+          error: message,
         });
       }
 
-      return this.updateStatus(id, "stopped", { pid: null });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger?.error("Error stopping machine", {
-        machineId: id,
-        error: message,
-      });
-
-      // Still mark as stopped even if shutdown failed
-      const runtimeManager = getGlobalRuntimeManager(this.logger);
       runtimeManager.remove(id);
-
-      return this.updateStatus(id, "stopped", {
-        pid: null,
-        error_message: message,
+      this.logger?.info("Machine stopped successfully", { machineId: id });
+    } else {
+      this.logger?.warn("No runtime instance found, marking as stopped", {
+        machineId: id,
       });
     }
+
+    const updated = await this.updateStatus(id, "stopped", { pid: null });
+    return Result.ok(updated!);
   }
 
   /**
    * Restart a machine
    */
-  async restart(id: string): Promise<MachineResponse | null> {
-    await this.stop(id);
+  async restart(id: string): Promise<Result<MachineResponse, HyperfleetError>> {
+    const stopResult = await this.stop(id);
+    if (stopResult.isErr()) {
+      return stopResult;
+    }
     return this.start(id);
   }
 
@@ -516,34 +533,32 @@ export class MachineService {
   async exec(
     id: string,
     body: ExecBody
-  ): Promise<{ success: true; result: ExecResponse } | { success: false; error: string }> {
+  ): Promise<Result<ExecResponse, HyperfleetError>> {
     const machine = await this.db
       .selectFrom("machines")
       .selectAll()
       .where("id", "=", id)
       .executeTakeFirst();
+
     if (!machine) {
-      return { success: false, error: "not_found" };
+      return Result.err(new NotFoundError({ message: "Machine not found" }));
     }
 
     if (machine.status !== "running") {
-      return { success: false, error: "machine_not_running" };
+      return Result.err(new ValidationError({ message: "Machine must be running to execute commands" }));
     }
 
-    const config = safeJsonParse(machine.config_json) as MachineConfig | null;
+    const configResult = Result.try(() => JSON.parse(machine.config_json) as MachineConfig);
+    const config = configResult.unwrapOr(null);
     const udsPath = config?.vsock?.uds_path;
+
     if (!udsPath) {
-      return { success: false, error: "vsock_not_configured" };
+      return Result.err(new VsockError({ message: "Vsock not configured for this machine" }));
     }
 
     const timeoutSeconds = Math.max(1, body.timeout ?? DEFAULT_EXEC_TIMEOUT_SECONDS);
     const timeoutMs = timeoutSeconds * 1000;
 
-    try {
-      const result = await execViaVsock(udsPath, { cmd: body.cmd, timeout: timeoutSeconds }, timeoutMs);
-      return { success: true, result };
-    } catch {
-      return { success: false, error: "exec_failed" };
-    }
+    return execViaVsock(udsPath, { cmd: body.cmd, timeout: timeoutSeconds }, timeoutMs);
   }
 }

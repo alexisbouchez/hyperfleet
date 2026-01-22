@@ -3,6 +3,8 @@
  * Uses Docker CLI for simplicity and compatibility
  */
 
+import { Result } from "better-result";
+import { DockerCliError } from "@hyperfleet/errors";
 import type {
   ContainerInfo,
   ContainerInspect,
@@ -23,17 +25,6 @@ export interface DockerClientConfig {
   dockerBinary?: string;
 }
 
-export class DockerError extends Error {
-  constructor(
-    message: string,
-    public code: number,
-    public stderr: string
-  ) {
-    super(message);
-    this.name = "DockerError";
-  }
-}
-
 /**
  * Docker client using CLI commands
  * This approach is simpler and more portable than the Docker Engine API
@@ -47,43 +38,57 @@ export class DockerClient {
     this.host = config.host;
   }
 
-  private async exec(args: string[]): Promise<{ stdout: string; stderr: string }> {
-    const cmdArgs = [...args];
+  private async exec(args: string[]): Promise<Result<{ stdout: string; stderr: string }, DockerCliError>> {
+    return Result.tryPromise({
+      try: async () => {
+        const cmdArgs = [...args];
 
-    if (this.host) {
-      cmdArgs.unshift("-H", this.host);
-    }
+        if (this.host) {
+          cmdArgs.unshift("-H", this.host);
+        }
 
-    const proc = Bun.spawn([this.dockerBinary, ...cmdArgs], {
-      stdout: "pipe",
-      stderr: "pipe",
+        const proc = Bun.spawn([this.dockerBinary, ...cmdArgs], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+
+        const [stdout, stderr, exitCode] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+          proc.exited,
+        ]);
+
+        if (exitCode !== 0) {
+          throw new DockerCliError({
+            message: `Docker command failed: ${args.join(" ")}`,
+            exitCode,
+            stderr,
+          });
+        }
+
+        return { stdout, stderr };
+      },
+      catch: (cause) => {
+        if (DockerCliError.is(cause)) {
+          return cause;
+        }
+        return new DockerCliError({
+          message: cause instanceof Error ? cause.message : String(cause),
+          exitCode: -1,
+          stderr: "",
+        });
+      },
     });
-
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-
-    if (exitCode !== 0) {
-      throw new DockerError(
-        `Docker command failed: ${args.join(" ")}`,
-        exitCode,
-        stderr
-      );
-    }
-
-    return { stdout, stderr };
   }
 
-  private async execJson<T>(args: string[]): Promise<T> {
-    const { stdout } = await this.exec(args);
-    return JSON.parse(stdout) as T;
+  private async execJson<T>(args: string[]): Promise<Result<T, DockerCliError>> {
+    const result = await this.exec(args);
+    return result.map(({ stdout }) => JSON.parse(stdout) as T);
   }
 
   // Container operations
 
-  async createContainer(options: CreateContainerOptions): Promise<string> {
+  async createContainer(options: CreateContainerOptions): Promise<Result<string, DockerCliError>> {
     const args = ["create"];
 
     if (options.name) {
@@ -180,60 +185,69 @@ export class DockerClient {
       args.push(...options.cmd);
     }
 
-    const { stdout } = await this.exec(args);
-    return stdout.trim();
+    const result = await this.exec(args);
+    return result.map(({ stdout }) => stdout.trim());
   }
 
-  async startContainer(containerId: string): Promise<void> {
-    await this.exec(["start", containerId]);
+  async startContainer(containerId: string): Promise<Result<void, DockerCliError>> {
+    const result = await this.exec(["start", containerId]);
+    return result.map(() => undefined);
   }
 
-  async stopContainer(containerId: string, timeout = 10): Promise<void> {
-    await this.exec(["stop", "-t", timeout.toString(), containerId]);
+  async stopContainer(containerId: string, timeout = 10): Promise<Result<void, DockerCliError>> {
+    const result = await this.exec(["stop", "-t", timeout.toString(), containerId]);
+    return result.map(() => undefined);
   }
 
-  async killContainer(containerId: string, signal = "SIGKILL"): Promise<void> {
-    await this.exec(["kill", "-s", signal, containerId]);
+  async killContainer(containerId: string, signal = "SIGKILL"): Promise<Result<void, DockerCliError>> {
+    const result = await this.exec(["kill", "-s", signal, containerId]);
+    return result.map(() => undefined);
   }
 
-  async removeContainer(containerId: string, force = false, volumes = false): Promise<void> {
+  async removeContainer(containerId: string, force = false, volumes = false): Promise<Result<void, DockerCliError>> {
     const args = ["rm"];
     if (force) args.push("-f");
     if (volumes) args.push("-v");
     args.push(containerId);
-    await this.exec(args);
+    const result = await this.exec(args);
+    return result.map(() => undefined);
   }
 
-  async pauseContainer(containerId: string): Promise<void> {
-    await this.exec(["pause", containerId]);
+  async pauseContainer(containerId: string): Promise<Result<void, DockerCliError>> {
+    const result = await this.exec(["pause", containerId]);
+    return result.map(() => undefined);
   }
 
-  async unpauseContainer(containerId: string): Promise<void> {
-    await this.exec(["unpause", containerId]);
+  async unpauseContainer(containerId: string): Promise<Result<void, DockerCliError>> {
+    const result = await this.exec(["unpause", containerId]);
+    return result.map(() => undefined);
   }
 
-  async restartContainer(containerId: string, timeout = 10): Promise<void> {
-    await this.exec(["restart", "-t", timeout.toString(), containerId]);
+  async restartContainer(containerId: string, timeout = 10): Promise<Result<void, DockerCliError>> {
+    const result = await this.exec(["restart", "-t", timeout.toString(), containerId]);
+    return result.map(() => undefined);
   }
 
-  async inspectContainer(containerId: string): Promise<ContainerInspect> {
+  async inspectContainer(containerId: string): Promise<Result<ContainerInspect, DockerCliError>> {
     const result = await this.execJson<ContainerInspect[]>(["inspect", containerId]);
-    return result[0];
+    return result.map((arr) => arr[0]);
   }
 
-  async listContainers(all = false): Promise<ContainerInfo[]> {
+  async listContainers(all = false): Promise<Result<ContainerInfo[], DockerCliError>> {
     const args = ["ps", "--format", "{{json .}}"];
     if (all) args.push("-a");
 
-    const { stdout } = await this.exec(args);
-    const lines = stdout.trim().split("\n").filter(Boolean);
-    return lines.map((line) => JSON.parse(line) as ContainerInfo);
+    const result = await this.exec(args);
+    return result.map(({ stdout }) => {
+      const lines = stdout.trim().split("\n").filter(Boolean);
+      return lines.map((line) => JSON.parse(line) as ContainerInfo);
+    });
   }
 
   async getContainerLogs(
     containerId: string,
     options?: { tail?: number; follow?: boolean; timestamps?: boolean }
-  ): Promise<string> {
+  ): Promise<Result<string, DockerCliError>> {
     const args = ["logs"];
 
     if (options?.tail) {
@@ -246,8 +260,8 @@ export class DockerClient {
 
     args.push(containerId);
 
-    const { stdout, stderr } = await this.exec(args);
-    return stdout + stderr;
+    const result = await this.exec(args);
+    return result.map(({ stdout, stderr }) => stdout + stderr);
   }
 
   async execInContainer(
@@ -275,54 +289,50 @@ export class DockerClient {
 
     args.push(containerId, ...cmd);
 
-    try {
-      const { stdout, stderr } = await this.exec(args);
-      return { exitCode: 0, stdout, stderr };
-    } catch (error) {
-      if (error instanceof DockerError) {
-        return { exitCode: error.code, stdout: "", stderr: error.stderr };
-      }
-      throw error;
-    }
+    const result = await this.exec(args);
+    return result.match({
+      ok: ({ stdout, stderr }) => ({ exitCode: 0, stdout, stderr }),
+      err: (error) => ({ exitCode: error.exitCode, stdout: "", stderr: error.stderr }),
+    });
   }
 
-  async waitContainer(containerId: string): Promise<number> {
-    const { stdout } = await this.exec(["wait", containerId]);
-    return parseInt(stdout.trim(), 10);
+  async waitContainer(containerId: string): Promise<Result<number, DockerCliError>> {
+    const result = await this.exec(["wait", containerId]);
+    return result.map(({ stdout }) => parseInt(stdout.trim(), 10));
   }
 
   // Image operations
 
-  async pullImage(image: string): Promise<void> {
-    await this.exec(["pull", image]);
+  async pullImage(image: string): Promise<Result<void, DockerCliError>> {
+    const result = await this.exec(["pull", image]);
+    return result.map(() => undefined);
   }
 
-  async listImages(): Promise<ImageInfo[]> {
+  async listImages(): Promise<Result<ImageInfo[], DockerCliError>> {
     const args = ["images", "--format", "{{json .}}"];
-    const { stdout } = await this.exec(args);
-    const lines = stdout.trim().split("\n").filter(Boolean);
-    return lines.map((line) => JSON.parse(line) as ImageInfo);
+    const result = await this.exec(args);
+    return result.map(({ stdout }) => {
+      const lines = stdout.trim().split("\n").filter(Boolean);
+      return lines.map((line) => JSON.parse(line) as ImageInfo);
+    });
   }
 
-  async removeImage(image: string, force = false): Promise<void> {
+  async removeImage(image: string, force = false): Promise<Result<void, DockerCliError>> {
     const args = ["rmi"];
     if (force) args.push("-f");
     args.push(image);
-    await this.exec(args);
+    const result = await this.exec(args);
+    return result.map(() => undefined);
   }
 
   async imageExists(image: string): Promise<boolean> {
-    try {
-      await this.exec(["image", "inspect", image]);
-      return true;
-    } catch {
-      return false;
-    }
+    const result = await this.exec(["image", "inspect", image]);
+    return result.isOk();
   }
 
   // Network operations
 
-  async createNetwork(name: string, options?: { driver?: string; subnet?: string }): Promise<string> {
+  async createNetwork(name: string, options?: { driver?: string; subnet?: string }): Promise<Result<string, DockerCliError>> {
     const args = ["network", "create"];
 
     if (options?.driver) {
@@ -335,67 +345,71 @@ export class DockerClient {
 
     args.push(name);
 
-    const { stdout } = await this.exec(args);
-    return stdout.trim();
+    const result = await this.exec(args);
+    return result.map(({ stdout }) => stdout.trim());
   }
 
-  async removeNetwork(name: string): Promise<void> {
-    await this.exec(["network", "rm", name]);
+  async removeNetwork(name: string): Promise<Result<void, DockerCliError>> {
+    const result = await this.exec(["network", "rm", name]);
+    return result.map(() => undefined);
   }
 
-  async listNetworks(): Promise<NetworkInfo[]> {
+  async listNetworks(): Promise<Result<NetworkInfo[], DockerCliError>> {
     const args = ["network", "ls", "--format", "{{json .}}"];
-    const { stdout } = await this.exec(args);
-    const lines = stdout.trim().split("\n").filter(Boolean);
-    return lines.map((line) => JSON.parse(line) as NetworkInfo);
+    const result = await this.exec(args);
+    return result.map(({ stdout }) => {
+      const lines = stdout.trim().split("\n").filter(Boolean);
+      return lines.map((line) => JSON.parse(line) as NetworkInfo);
+    });
   }
 
-  async connectNetwork(network: string, containerId: string, ip?: string): Promise<void> {
+  async connectNetwork(network: string, containerId: string, ip?: string): Promise<Result<void, DockerCliError>> {
     const args = ["network", "connect"];
     if (ip) {
       args.push("--ip", ip);
     }
     args.push(network, containerId);
-    await this.exec(args);
+    const result = await this.exec(args);
+    return result.map(() => undefined);
   }
 
-  async disconnectNetwork(network: string, containerId: string): Promise<void> {
-    await this.exec(["network", "disconnect", network, containerId]);
+  async disconnectNetwork(network: string, containerId: string): Promise<Result<void, DockerCliError>> {
+    const result = await this.exec(["network", "disconnect", network, containerId]);
+    return result.map(() => undefined);
   }
 
   // Volume operations
 
-  async createVolume(name: string): Promise<string> {
-    const { stdout } = await this.exec(["volume", "create", name]);
-    return stdout.trim();
+  async createVolume(name: string): Promise<Result<string, DockerCliError>> {
+    const result = await this.exec(["volume", "create", name]);
+    return result.map(({ stdout }) => stdout.trim());
   }
 
-  async removeVolume(name: string, force = false): Promise<void> {
+  async removeVolume(name: string, force = false): Promise<Result<void, DockerCliError>> {
     const args = ["volume", "rm"];
     if (force) args.push("-f");
     args.push(name);
-    await this.exec(args);
+    const result = await this.exec(args);
+    return result.map(() => undefined);
   }
 
-  async listVolumes(): Promise<VolumeInfo[]> {
+  async listVolumes(): Promise<Result<VolumeInfo[], DockerCliError>> {
     const args = ["volume", "ls", "--format", "{{json .}}"];
-    const { stdout } = await this.exec(args);
-    const lines = stdout.trim().split("\n").filter(Boolean);
-    return lines.map((line) => JSON.parse(line) as VolumeInfo);
+    const result = await this.exec(args);
+    return result.map(({ stdout }) => {
+      const lines = stdout.trim().split("\n").filter(Boolean);
+      return lines.map((line) => JSON.parse(line) as VolumeInfo);
+    });
   }
 
   // System operations
 
   async ping(): Promise<boolean> {
-    try {
-      await this.exec(["info"]);
-      return true;
-    } catch {
-      return false;
-    }
+    const result = await this.exec(["info"]);
+    return result.isOk();
   }
 
-  async version(): Promise<{ Client: { Version: string }; Server: { Version: string } }> {
+  async version(): Promise<Result<{ Client: { Version: string }; Server: { Version: string } }, DockerCliError>> {
     return this.execJson(["version", "--format", "{{json .}}"]);
   }
 }
@@ -422,3 +436,6 @@ export interface CreateContainerOptions {
   entrypoint?: string;
   cmd?: string[];
 }
+
+// Re-export for backwards compatibility during migration
+export { DockerCliError } from "@hyperfleet/errors";

@@ -204,7 +204,7 @@ export class Container implements Runtime {
     // Pull image if needed
     const imageExists = await this.client.imageExists(this.config.image);
     if (!imageExists) {
-      await this.client.pullImage(this.config.image);
+      (await this.client.pullImage(this.config.image)).unwrap();
     }
 
     const options: CreateContainerOptions = {
@@ -231,7 +231,7 @@ export class Container implements Runtime {
       },
     };
 
-    this.containerId = await this.client.createContainer(options);
+    this.containerId = (await this.client.createContainer(options)).unwrap();
   }
 
   /**
@@ -252,7 +252,7 @@ export class Container implements Runtime {
 
     // Start the container
     if (this.containerId) {
-      await this.client.startContainer(this.containerId);
+      (await this.client.startContainer(this.containerId)).unwrap();
     }
 
     this.started = true;
@@ -266,11 +266,9 @@ export class Container implements Runtime {
       return;
     }
 
-    try {
-      await this.client.stopContainer(this.containerId, 10);
-    } catch {
-      // Container might already be stopped
-    }
+    const result = await this.client.stopContainer(this.containerId, 10);
+    // Ignore errors - container might already be stopped
+    result.unwrapOr(undefined);
   }
 
   /**
@@ -281,7 +279,7 @@ export class Container implements Runtime {
       throw new Error("Container not created");
     }
 
-    await this.client.pauseContainer(this.containerId);
+    (await this.client.pauseContainer(this.containerId)).unwrap();
   }
 
   /**
@@ -292,7 +290,7 @@ export class Container implements Runtime {
       throw new Error("Container not created");
     }
 
-    await this.client.unpauseContainer(this.containerId);
+    (await this.client.unpauseContainer(this.containerId)).unwrap();
   }
 
   /**
@@ -305,15 +303,12 @@ export class Container implements Runtime {
 
     const timeoutSeconds = Math.ceil(timeoutMs / 1000);
 
-    try {
-      await this.client.stopContainer(this.containerId, timeoutSeconds);
-    } catch {
+    const stopResult = await this.client.stopContainer(this.containerId, timeoutSeconds);
+    if (stopResult.isErr()) {
       // Force kill if stop fails
-      try {
-        await this.client.killContainer(this.containerId);
-      } catch {
-        // Ignore if already stopped
-      }
+      const killResult = await this.client.killContainer(this.containerId);
+      // Ignore errors - already stopped
+      killResult.unwrapOr(undefined);
     }
   }
 
@@ -342,20 +337,19 @@ export class Container implements Runtime {
       };
     }
 
-    try {
-      const inspect = await this.client.inspectContainer(this.containerId);
-      return {
+    const result = await this.client.inspectContainer(this.containerId);
+    return result.match({
+      ok: (inspect) => ({
         id: this.id,
         status: mapContainerStatus(inspect.State.Status),
         pid: inspect.State.Pid || null,
         startedAt: inspect.State.StartedAt,
-      };
-    } catch {
-      return {
+      }),
+      err: () => ({
         id: this.id,
-        status: "stopped",
-      };
-    }
+        status: "stopped" as RuntimeStatus,
+      }),
+    });
   }
 
   /**
@@ -390,7 +384,7 @@ export class Container implements Runtime {
       throw new Error("Container not created");
     }
 
-    return this.client.waitContainer(this.containerId);
+    return (await this.client.waitContainer(this.containerId)).unwrap();
   }
 
   /**
@@ -401,7 +395,7 @@ export class Container implements Runtime {
       return;
     }
 
-    await this.client.removeContainer(this.containerId, force, volumes);
+    (await this.client.removeContainer(this.containerId, force, volumes)).unwrap();
     this.containerId = null;
     this.started = false;
   }
@@ -414,7 +408,7 @@ export class Container implements Runtime {
       throw new Error("Container not created");
     }
 
-    return this.client.getContainerLogs(this.containerId, options);
+    return (await this.client.getContainerLogs(this.containerId, options)).unwrap();
   }
 
   /**
@@ -425,6 +419,6 @@ export class Container implements Runtime {
       throw new Error("Container not created");
     }
 
-    await this.client.restartContainer(this.containerId, timeoutSeconds);
+    (await this.client.restartContainer(this.containerId, timeoutSeconds)).unwrap();
   }
 }

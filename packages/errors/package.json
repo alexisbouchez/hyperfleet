@@ -1,0 +1,10 @@
+{
+  "name": "@hyperfleet/errors",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "better-result": "^2.5.1"
+  }
+}

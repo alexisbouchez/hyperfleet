@@ -105,73 +105,73 @@ export const CreateLogFilesHandler: Handler = async (machine) => {
 export const BootstrapLoggingHandler: Handler = async (machine) => {
   const { logPath, logLevel } = machine.config;
   if (logPath) {
-    await machine.client.putLogger({
+    (await machine.client.putLogger({
       log_path: logPath,
       level: logLevel || "Warning",
       show_level: true,
       show_log_origin: true,
-    });
+    })).unwrap();
   }
 };
 
 export const CreateMachineHandler: Handler = async (machine) => {
-  await machine.client.putMachineConfiguration({
+  (await machine.client.putMachineConfiguration({
     vcpu_count: machine.config.vcpuCount,
     mem_size_mib: machine.config.memSizeMib,
     smt: machine.config.smt,
     cpu_template: machine.config.cpuTemplate,
     track_dirty_pages: machine.config.trackDirtyPages,
-  });
+  })).unwrap();
 };
 
 export const CreateBootSourceHandler: Handler = async (machine) => {
-  await machine.client.putGuestBootSource({
+  (await machine.client.putGuestBootSource({
     kernel_image_path: machine.config.kernelImagePath,
     boot_args: machine.getKernelArgs(),
     initrd_path: machine.config.initrdPath,
-  });
+  })).unwrap();
 };
 
 export const AttachDrivesHandler: Handler = async (machine) => {
   const drives = machine.config.drives || [];
   for (const drive of drives) {
-    await machine.client.putGuestDriveByID(drive);
+    (await machine.client.putGuestDriveByID(drive)).unwrap();
   }
 };
 
 export const CreateNetworkInterfacesHandler: Handler = async (machine) => {
   const interfaces = machine.config.networkInterfaces || [];
   for (const iface of interfaces) {
-    await machine.client.putGuestNetworkInterfaceByID(iface);
+    (await machine.client.putGuestNetworkInterfaceByID(iface)).unwrap();
   }
 };
 
 export const AddVsockHandler: Handler = async (machine) => {
   const { vsock } = machine.config;
   if (vsock) {
-    await machine.client.putGuestVsock(vsock);
+    (await machine.client.putGuestVsock(vsock)).unwrap();
   }
 };
 
 export const SetupBalloonHandler: Handler = async (machine) => {
   const { balloon } = machine.config;
   if (balloon) {
-    await machine.client.putBalloon(balloon);
+    (await machine.client.putBalloon(balloon)).unwrap();
   }
 };
 
 export const ConfigMmdsHandler: Handler = async (machine) => {
   const { mmdsConfig, mmdsData } = machine.config;
   if (mmdsConfig) {
-    await machine.client.putMmdsConfig(mmdsConfig);
+    (await machine.client.putMmdsConfig(mmdsConfig)).unwrap();
     if (mmdsData) {
-      await machine.client.putMmds(mmdsData);
+      (await machine.client.putMmds(mmdsData)).unwrap();
     }
   }
 };
 
 export const StartVMMHandler: Handler = async (machine) => {
-  await machine.client.createSyncAction("InstanceStart");
+  (await machine.client.createSyncAction("InstanceStart")).unwrap();
 };
 
 /**

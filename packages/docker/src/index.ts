@@ -12,7 +12,7 @@ export type { Runtime, RuntimeInfo, ExecResult, RuntimeType, RuntimeStatus } fro
 export * from "./models";
 
 // Client
-export { DockerClient, DockerError } from "./client";
+export { DockerClient, DockerCliError } from "./client";
 export type { DockerClientConfig, CreateContainerOptions } from "./client";
 
 // Container

@@ -168,8 +168,8 @@ export class Machine implements Runtime {
         const file = Bun.file(socketPath);
         if (await file.exists()) {
           // Try to connect
-          await this.client.describeInstance();
-          return;
+          const result = await this.client.describeInstance();
+          if (result.isOk()) return;
         }
       } catch {
         // Socket not ready yet
@@ -206,21 +206,21 @@ export class Machine implements Runtime {
    * Pause the microVM
    */
   async pause(): Promise<void> {
-    await this.client.patchVm("Paused");
+    (await this.client.patchVm("Paused")).unwrap();
   }
 
   /**
    * Resume a paused microVM
    */
   async resume(): Promise<void> {
-    await this.client.patchVm("Resumed");
+    (await this.client.patchVm("Resumed")).unwrap();
   }
 
   /**
    * Send Ctrl+Alt+Del to the guest (graceful shutdown)
    */
   async sendCtrlAltDel(): Promise<void> {
-    await this.client.createSyncAction("SendCtrlAltDel");
+    (await this.client.createSyncAction("SendCtrlAltDel")).unwrap();
   }
 
   /**
@@ -292,7 +292,7 @@ export class Machine implements Runtime {
    * Get Firecracker instance info
    */
   async getInstanceInfo(): Promise<InstanceInfo> {
-    return this.client.describeInstance();
+    return (await this.client.describeInstance()).unwrap();
   }
 
   /**
@@ -373,14 +373,14 @@ export class Machine implements Runtime {
    * Update balloon memory
    */
   async updateBalloon(amountMib: number): Promise<void> {
-    await this.client.patchBalloon({ amount_mib: amountMib });
+    (await this.client.patchBalloon({ amount_mib: amountMib })).unwrap();
   }
 
   /**
    * Get balloon statistics
    */
   async getBalloonStats(): Promise<BalloonStats> {
-    return this.client.describeBalloonStats();
+    return (await this.client.describeBalloonStats()).unwrap();
   }
 
   /**
@@ -388,28 +388,28 @@ export class Machine implements Runtime {
    */
   async createSnapshot(params: SnapshotCreateParams): Promise<void> {
     await this.pause();
-    await this.client.createSnapshot(params);
+    (await this.client.createSnapshot(params)).unwrap();
   }
 
   /**
    * Update MMDS data
    */
   async setMetadata(data: MmdsContentsObject): Promise<void> {
-    await this.client.putMmds(data);
+    (await this.client.putMmds(data)).unwrap();
   }
 
   /**
    * Patch MMDS data
    */
   async updateMetadata(data: MmdsContentsObject): Promise<void> {
-    await this.client.patchMmds(data);
+    (await this.client.patchMmds(data)).unwrap();
   }
 
   /**
    * Get MMDS data
    */
   async getMetadata(): Promise<MmdsContentsObject> {
-    return this.client.getMmds();
+    return (await this.client.getMmds()).unwrap();
   }
 
   /**
@@ -419,17 +419,17 @@ export class Machine implements Runtime {
     driveId: string,
     pathOnHost: string
   ): Promise<void> {
-    await this.client.patchGuestDriveByID(driveId, {
+    (await this.client.patchGuestDriveByID(driveId, {
       drive_id: driveId,
       path_on_host: pathOnHost,
-    });
+    })).unwrap();
   }
 
   /**
    * Flush metrics
    */
   async flushMetrics(): Promise<void> {
-    await this.client.createSyncAction("FlushMetrics");
+    (await this.client.createSyncAction("FlushMetrics")).unwrap();
   }
 
   /**
@@ -460,7 +460,7 @@ export async function createMachineFromSnapshot(
       await m.startVMM();
     })
     .append("LoadSnapshot", async (m) => {
-      await m.client.loadSnapshot(snapshotParams);
+      (await m.client.loadSnapshot(snapshotParams)).unwrap();
     });
 
   await machine.start();

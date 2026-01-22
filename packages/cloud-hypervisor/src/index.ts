@@ -12,7 +12,7 @@ export type { Runtime, RuntimeInfo, ExecResult, RuntimeType, RuntimeStatus } fro
 export * from "./models";
 
 // Client
-export { CloudHypervisorClient, CloudHypervisorError } from "./client";
+export { CloudHypervisorClient, CloudHypervisorApiError } from "./client";
 export type { CloudHypervisorClientConfig } from "./client";
 
 // Machine

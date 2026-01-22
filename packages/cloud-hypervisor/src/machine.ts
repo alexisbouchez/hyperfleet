@@ -182,8 +182,8 @@ export class Machine implements Runtime {
         const file = Bun.file(this.config.socketPath);
         if (await file.exists()) {
           // Try to connect
-          await this.client.ping();
-          return;
+          const result = await this.client.ping();
+          if (result.isOk()) return;
         }
       } catch {
         // Socket not ready yet
@@ -220,14 +220,14 @@ export class Machine implements Runtime {
    * Pause the VM
    */
   async pause(): Promise<void> {
-    await this.client.pauseVm();
+    (await this.client.pauseVm()).unwrap();
   }
 
   /**
    * Resume a paused VM
    */
   async resume(): Promise<void> {
-    await this.client.resumeVm();
+    (await this.client.resumeVm()).unwrap();
   }
 
   /**
@@ -249,22 +249,22 @@ export class Machine implements Runtime {
       return;
     }
 
-    try {
-      // Try graceful shutdown first (ACPI power button)
-      await this.client.powerButton();
-
-      // Wait for process to exit
-      const exitPromise = this.process.exited;
-      const timeoutPromise = Bun.sleep(timeoutMs).then(() => null);
-
-      const result = await Promise.race([exitPromise, timeoutPromise]);
-
-      if (result === null) {
-        // Timeout, force kill
-        await this.stop();
-      }
-    } catch {
+    // Try graceful shutdown first (ACPI power button)
+    const powerResult = await this.client.powerButton();
+    if (powerResult.isErr()) {
       // Failed to send power button, force kill
+      await this.stop();
+      return;
+    }
+
+    // Wait for process to exit
+    const exitPromise = this.process.exited;
+    const timeoutPromise = Bun.sleep(timeoutMs).then(() => null);
+
+    const result = await Promise.race([exitPromise, timeoutPromise]);
+
+    if (result === null) {
+      // Timeout, force kill
       await this.stop();
     }
   }
@@ -273,7 +273,7 @@ export class Machine implements Runtime {
    * Reboot the VM
    */
   async reboot(): Promise<void> {
-    await this.client.rebootVm();
+    (await this.client.rebootVm()).unwrap();
   }
 
   /**
@@ -294,20 +294,19 @@ export class Machine implements Runtime {
    * Get runtime information (implements Runtime interface)
    */
   async getInfo(): Promise<RuntimeInfo> {
-    try {
-      const info = await this.client.getVmInfo();
-      return {
+    const result = await this.client.getVmInfo();
+    return result.match({
+      ok: (info) => ({
         id: this.id,
         status: this.mapVmState(info.state),
         pid: this._pid,
-      };
-    } catch {
-      return {
+      }),
+      err: () => ({
         id: this.id,
         status: this.process ? "running" : "stopped",
         pid: this._pid,
-      };
-    }
+      }),
+    });
   }
 
   private mapVmState(state: string): "pending" | "starting" | "running" | "paused" | "stopping" | "stopped" | "failed" {
@@ -331,7 +330,7 @@ export class Machine implements Runtime {
    * Get Cloud Hypervisor VM info
    */
   async getVmInfo(): Promise<VmInfo> {
-    return this.client.getVmInfo();
+    return (await this.client.getVmInfo()).unwrap();
   }
 
   /**
@@ -421,41 +420,41 @@ export class Machine implements Runtime {
    * Resize VM resources (vCPUs, memory, balloon)
    */
   async resize(resize: VmResize): Promise<void> {
-    await this.client.resizeVm(resize);
+    (await this.client.resizeVm(resize)).unwrap();
   }
 
   /**
    * Add a disk (hot-plug)
    */
   async addDisk(disk: DiskConfig): Promise<void> {
-    await this.client.addDisk(disk);
+    (await this.client.addDisk(disk)).unwrap();
   }
 
   /**
    * Add a network interface (hot-plug)
    */
   async addNet(net: NetConfig): Promise<void> {
-    await this.client.addNet(net);
+    (await this.client.addNet(net)).unwrap();
   }
 
   /**
    * Remove a device by ID
    */
   async removeDevice(id: string): Promise<void> {
-    await this.client.removeDevice({ id });
+    (await this.client.removeDevice({ id })).unwrap();
   }
 
   /**
    * Create a snapshot
    */
   async createSnapshot(destinationUrl: string): Promise<void> {
-    await this.client.createSnapshot({ destination_url: destinationUrl });
+    (await this.client.createSnapshot({ destination_url: destinationUrl })).unwrap();
   }
 
   /**
    * Get VM counters/metrics
    */
   async getCounters(): Promise<Record<string, Record<string, number>>> {
-    return this.client.getVmCounters();
+    return (await this.client.getVmCounters()).unwrap();
   }
 }

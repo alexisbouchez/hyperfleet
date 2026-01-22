@@ -3,6 +3,7 @@ import type { MachineStatus, RuntimeType } from "@hyperfleet/worker/database";
 import type { MachineService } from "../services/machines";
 import type { AuthService } from "../services/auth";
 import type { Logger } from "@hyperfleet/logger";
+import { getHttpStatus } from "@hyperfleet/errors";
 
 const machineStatusEnum = t.Union([
   t.Literal("pending"),
@@ -275,12 +276,12 @@ export const machineRoutes = (disableAuth: boolean) =>
           return { error: "unauthorized", message: "Invalid or missing API key" };
         }
 
-        const machine = await machineService.start(params.id);
-        if (!machine) {
-          set.status = 404;
-          return { error: "not_found", message: "Machine not found" };
+        const result = await machineService.start(params.id);
+        if (result.isErr()) {
+          set.status = getHttpStatus(result.error);
+          return { error: result.error._tag, message: result.error.message };
         }
-        return machine;
+        return result.unwrap();
       },
       {
         params: t.Object({
@@ -290,6 +291,7 @@ export const machineRoutes = (disableAuth: boolean) =>
           200: machineResponse,
           401: errorResponse,
           404: errorResponse,
+          500: errorResponse,
         },
         detail: {
           summary: "Start machine",
@@ -308,12 +310,12 @@ export const machineRoutes = (disableAuth: boolean) =>
           return { error: "unauthorized", message: "Invalid or missing API key" };
         }
 
-        const machine = await machineService.stop(params.id);
-        if (!machine) {
-          set.status = 404;
-          return { error: "not_found", message: "Machine not found" };
+        const result = await machineService.stop(params.id);
+        if (result.isErr()) {
+          set.status = getHttpStatus(result.error);
+          return { error: result.error._tag, message: result.error.message };
         }
-        return machine;
+        return result.unwrap();
       },
       {
         params: t.Object({
@@ -341,12 +343,12 @@ export const machineRoutes = (disableAuth: boolean) =>
           return { error: "unauthorized", message: "Invalid or missing API key" };
         }
 
-        const machine = await machineService.restart(params.id);
-        if (!machine) {
-          set.status = 404;
-          return { error: "not_found", message: "Machine not found" };
+        const result = await machineService.restart(params.id);
+        if (result.isErr()) {
+          set.status = getHttpStatus(result.error);
+          return { error: result.error._tag, message: result.error.message };
         }
-        return machine;
+        return result.unwrap();
       },
       {
         params: t.Object({
@@ -356,6 +358,7 @@ export const machineRoutes = (disableAuth: boolean) =>
           200: machineResponse,
           401: errorResponse,
           404: errorResponse,
+          500: errorResponse,
         },
         detail: {
           summary: "Restart machine",
@@ -375,19 +378,11 @@ export const machineRoutes = (disableAuth: boolean) =>
         }
 
         const result = await machineService.exec(params.id, body);
-        if (!result.success) {
-          if (result.error === "not_found") {
-            set.status = 404;
-            return { error: "not_found", message: "Machine not found" };
-          }
-          if (result.error === "machine_not_running") {
-            set.status = 400;
-            return { error: "machine_not_running", message: "Machine must be running to execute commands" };
-          }
-          set.status = 500;
-          return { error: "exec_failed", message: "Failed to execute command" };
+        if (result.isErr()) {
+          set.status = getHttpStatus(result.error);
+          return { error: result.error._tag, message: result.error.message };
         }
-        return result.result;
+        return result.unwrap();
       },
       {
         params: t.Object({
@@ -402,6 +397,7 @@ export const machineRoutes = (disableAuth: boolean) =>
           400: errorResponse,
           401: errorResponse,
           404: errorResponse,
+          502: errorResponse,
         },
         detail: {
           summary: "Execute command",

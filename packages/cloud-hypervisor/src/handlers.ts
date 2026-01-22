@@ -117,11 +117,11 @@ export const DiskConfigValidationHandler: CloudHypervisorHandler = async (machin
 
 export const CreateVmHandler: CloudHypervisorHandler = async (machine) => {
   const vmConfig = machine.buildVmConfig();
-  await machine.client.createVm(vmConfig);
+  (await machine.client.createVm(vmConfig)).unwrap();
 };
 
 export const BootVmHandler: CloudHypervisorHandler = async (machine) => {
-  await machine.client.bootVm();
+  (await machine.client.bootVm()).unwrap();
 };
 
 /**

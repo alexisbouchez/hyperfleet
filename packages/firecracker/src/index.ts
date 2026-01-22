@@ -12,7 +12,7 @@ export type { Runtime, RuntimeInfo, ExecResult, RuntimeType, RuntimeStatus } fro
 export * from "./models";
 
 // Client
-export { FirecrackerClient, FirecrackerError } from "./client";
+export { FirecrackerClient, FirecrackerApiError } from "./client";
 export type { FirecrackerClientConfig } from "./client";
 
 // Machine

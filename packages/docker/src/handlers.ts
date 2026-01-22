@@ -107,7 +107,7 @@ export const PortValidationHandler: ContainerHandler = async (container) => {
 export const PullImageHandler: ContainerHandler = async (container) => {
   const imageExists = await container.client.imageExists(container.config.image);
   if (!imageExists) {
-    await container.client.pullImage(container.config.image);
+    (await container.client.pullImage(container.config.image)).unwrap();
   }
 };
 
