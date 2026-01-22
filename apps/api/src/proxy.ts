@@ -20,6 +20,8 @@ type ProxyTarget = {
   port: number;
 };
 
+type ProxyMachineConfig = Pick<Machine, "id" | "runtime_type" | "status" | "config_json">;
+
 type DockerConfig = {
   ports?: Array<{ hostPort?: number; containerPort?: number }>;
 };
@@ -145,7 +147,9 @@ function normalizeExposedPorts(
   return Result.ok(unique);
 }
 
-function getVmExposedPorts(machine: Machine): Result<number[] | null, HyperfleetError> {
+function getVmExposedPorts(
+  machine: ProxyMachineConfig
+): Result<number[] | null, HyperfleetError> {
   const configResult = Result.try(() => JSON.parse(machine.config_json) as VmProxyConfig);
   if (configResult.isErr()) {
     return Result.err(
@@ -253,7 +257,7 @@ function buildUpstreamRequest(request: Request, url: string): Request {
   headers.delete("host");
   headers.delete("content-length");
 
-  const init: RequestInit = {
+  const init: globalThis.RequestInit = {
     method: request.method,
     headers,
     redirect: "manual" as const,
