@@ -1,0 +1,60 @@
+{
+  "layout": "doc",
+  "tags": "docs",
+  "menu": [
+    {
+      "type": "group",
+      "label": "Getting Started",
+      "items": [
+        "index",
+        "installation",
+        "quickstart"
+      ]
+    },
+    {
+      "type": "group",
+      "label": "API Reference",
+      "items": [
+        {
+          "type": "submenu",
+          "label": "REST API",
+          "icon": "server",
+          "open": true,
+          "items": [
+            "api/overview",
+            "api/authentication",
+            "api/machines",
+            "api/commands"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "label": "Guides",
+      "items": [
+        "guides/machine-lifecycle",
+        "guides/linux-development",
+        "guides/networking",
+        "guides/reverse-proxy",
+        "guides/sdk-usage"
+      ]
+    },
+    {
+      "type": "group",
+      "label": "Configuration",
+      "items": [
+        "configuration/environment-variables",
+        "configuration/machine-options"
+      ]
+    },
+    {
+      "type": "group",
+      "label": "Reference",
+      "items": [
+        "reference/machine-states",
+        "reference/error-codes"
+      ]
+    }
+  ]
+}
