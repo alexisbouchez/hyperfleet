@@ -39,7 +39,7 @@ bun run start
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `API_URL` | `http://localhost:3000` | Hyperfleet API URL |
+| `API_URL` | `http://localhost:3000/api/v1` | Hyperfleet API URL |
 | `API_KEY` | `test-key` | API authentication key |
 
 ## Expected output

@@ -26,9 +26,10 @@ export function createApp(config: AppConfig) {
         documentation: {
           info: {
             title: "Hyperfleet API",
-            version: "0.0.1",
+            version: "1.0.0",
             description: "REST API for managing Firecracker microVMs",
           },
+          servers: [{ url: "/api/v1", description: "API v1" }],
           tags: [
             {
               name: "machines",
@@ -69,14 +70,17 @@ export function createApp(config: AppConfig) {
       return { correlationId, logger, machineService, fileService, authService };
     })
 
-    // Health check (public)
+    // Health check (public, unversioned)
     .get("/health", () => ({ status: "ok" }))
 
-    // Machine routes
-    .use(machineRoutes(config.disableAuth ?? false))
-
-    // File routes
-    .use(fileRoutes(config.disableAuth ?? false))
+    // API v1 routes
+    .group("/api/v1", (app) =>
+      app
+        // Machine routes
+        .use(machineRoutes(config.disableAuth ?? false))
+        // File routes
+        .use(fileRoutes(config.disableAuth ?? false))
+    )
 
     // Global error handler
     .onError(({ code, error, set, logger }) => {

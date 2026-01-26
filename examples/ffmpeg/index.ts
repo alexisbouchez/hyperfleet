@@ -14,7 +14,7 @@
  *   - A sample video file (or use the generated test pattern)
  */
 
-const API_URL = process.env.API_URL ?? "http://localhost:3000";
+const API_URL = process.env.API_URL ?? "http://localhost:3000/api/v1";
 const API_KEY = process.env.API_KEY ?? "test-key";
 
 interface Machine {

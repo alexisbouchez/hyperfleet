@@ -13,7 +13,7 @@
  *   - skopeo and umoci installed (for OCI image support)
  */
 
-const API_URL = process.env.API_URL ?? "http://localhost:3000";
+const API_URL = process.env.API_URL ?? "http://localhost:3000/api/v1";
 const API_KEY = process.env.API_KEY ?? "test-key";
 
 interface Machine {
