@@ -1,8 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import {
   FirecrackerApiError,
-  CloudHypervisorApiError,
-  DockerCliError,
   NotFoundError,
   ValidationError,
   TimeoutError,
@@ -38,57 +36,6 @@ describe("Error Types", () => {
       expect(FirecrackerApiError.is(error)).toBe(true);
       expect(FirecrackerApiError.is(new Error("test"))).toBe(false);
       expect(FirecrackerApiError.is(null)).toBe(false);
-    });
-  });
-
-  describe("CloudHypervisorApiError", () => {
-    it("creates error with correct properties", () => {
-      const error = new CloudHypervisorApiError({
-        message: "VM failed",
-        statusCode: 503,
-        body: "Service unavailable",
-      });
-
-      expect(error.message).toBe("VM failed");
-      expect(error.statusCode).toBe(503);
-      expect(error.body).toBe("Service unavailable");
-      expect(error._tag).toBe("CloudHypervisorApiError");
-    });
-
-    it("type guard works correctly", () => {
-      const error = new CloudHypervisorApiError({
-        message: "test",
-        statusCode: 400,
-      });
-
-      expect(CloudHypervisorApiError.is(error)).toBe(true);
-      expect(CloudHypervisorApiError.is(new Error("test"))).toBe(false);
-    });
-  });
-
-  describe("DockerCliError", () => {
-    it("creates error with correct properties", () => {
-      const error = new DockerCliError({
-        message: "Command failed",
-        exitCode: 1,
-        stderr: "Error: container not found",
-      });
-
-      expect(error.message).toBe("Command failed");
-      expect(error.exitCode).toBe(1);
-      expect(error.stderr).toBe("Error: container not found");
-      expect(error._tag).toBe("DockerCliError");
-    });
-
-    it("type guard works correctly", () => {
-      const error = new DockerCliError({
-        message: "test",
-        exitCode: 0,
-        stderr: "",
-      });
-
-      expect(DockerCliError.is(error)).toBe(true);
-      expect(DockerCliError.is(new Error("test"))).toBe(false);
     });
   });
 
@@ -221,31 +168,6 @@ describe("getHttpStatus", () => {
       message: "test",
       statusCode: 400,
       responseBody: "",
-    });
-    expect(getHttpStatus(error)).toBe(400);
-  });
-
-  it("returns 502 for CloudHypervisorApiError with 5xx status", () => {
-    const error = new CloudHypervisorApiError({
-      message: "test",
-      statusCode: 503,
-    });
-    expect(getHttpStatus(error)).toBe(502);
-  });
-
-  it("returns 400 for CloudHypervisorApiError with 4xx status", () => {
-    const error = new CloudHypervisorApiError({
-      message: "test",
-      statusCode: 404,
-    });
-    expect(getHttpStatus(error)).toBe(400);
-  });
-
-  it("returns 400 for DockerCliError with non-zero exit code", () => {
-    const error = new DockerCliError({
-      message: "test",
-      exitCode: 1,
-      stderr: "",
     });
     expect(getHttpStatus(error)).toBe(400);
   });

@@ -22,10 +22,6 @@ type ProxyTarget = {
 
 type ProxyMachineConfig = Pick<Machine, "id" | "runtime_type" | "status" | "config_json">;
 
-type DockerConfig = {
-  ports?: Array<{ hostPort?: number; containerPort?: number }>;
-};
-
 type VmProxyConfig = {
   exposedPorts?: number[];
 };
@@ -207,42 +203,6 @@ function resolveProxyTarget(
     return Result.err(new ValidationError({ message: "Machine must be running to proxy traffic" }));
   }
 
-  if (machine.runtime_type === "docker") {
-    const configResult = Result.try(() => JSON.parse(machine.config_json) as DockerConfig);
-    if (configResult.isErr()) {
-      return Result.err(
-        new RuntimeError({
-          message: "Failed to parse machine config for proxying",
-          cause: configResult.error,
-        })
-      );
-    }
-
-    const ports = configResult.unwrap().ports ?? [];
-    if (ports.length === 0) {
-      return Result.err(new ValidationError({ message: "No port mappings configured for machine" }));
-    }
-
-    if (requestedPort === null) {
-      const hostPort = ports[0]?.hostPort;
-      if (!hostPort || !Number.isInteger(hostPort)) {
-        return Result.err(new ValidationError({ message: "Invalid port mapping for machine" }));
-      }
-      return Result.ok({ host: "127.0.0.1", port: hostPort });
-    }
-
-    const match = ports.find(
-      (port) => port.containerPort === requestedPort || port.hostPort === requestedPort
-    );
-    const hostPort = match?.hostPort;
-    if (!hostPort || !Number.isInteger(hostPort)) {
-      return Result.err(
-        new ValidationError({ message: `No port mapping found for port ${requestedPort}` })
-      );
-    }
-    return Result.ok({ host: "127.0.0.1", port: hostPort });
-  }
-
   if (!machine.guest_ip) {
     return Result.err(
       new ValidationError({ message: "Machine has no guest IP configured for proxying" })
@@ -309,7 +269,7 @@ export function startReverseProxy(config: ReverseProxyConfig): ReturnType<typeof
           .selectFrom("machines")
           .select(["id", "runtime_type", "status", "config_json"])
           .where("status", "=", "running")
-          .where("runtime_type", "in", ["firecracker", "cloud-hypervisor"])
+          .where("runtime_type", "=", "firecracker")
           .execute();
 
         const desiredPorts = new Set<number>();
@@ -446,22 +406,20 @@ export function createReverseProxyHandler(
       return errorResponse(new NotFoundError({ message: "Machine not found" }));
     }
 
-    if (machine.runtime_type !== "docker") {
-      const exposedPortsResult = getVmExposedPorts(machine);
-      if (exposedPortsResult.isErr()) {
-        logger.warn("Failed to resolve exposed ports", {
-          error: exposedPortsResult.error.message,
-        });
-        return errorResponse(exposedPortsResult.error);
-      }
-
-      const resolvedPortResult = resolveVmPort(requestedPort, exposedPortsResult.unwrap());
-      if (resolvedPortResult.isErr()) {
-        logger.warn("Requested port not exposed", { error: resolvedPortResult.error.message });
-        return errorResponse(resolvedPortResult.error);
-      }
-      requestedPort = resolvedPortResult.unwrap();
+    const exposedPortsResult = getVmExposedPorts(machine);
+    if (exposedPortsResult.isErr()) {
+      logger.warn("Failed to resolve exposed ports", {
+        error: exposedPortsResult.error.message,
+      });
+      return errorResponse(exposedPortsResult.error);
     }
+
+    const resolvedPortResult = resolveVmPort(requestedPort, exposedPortsResult.unwrap());
+    if (resolvedPortResult.isErr()) {
+      logger.warn("Requested port not exposed", { error: resolvedPortResult.error.message });
+      return errorResponse(resolvedPortResult.error);
+    }
+    requestedPort = resolvedPortResult.unwrap();
 
     const targetResult = resolveProxyTarget(machine, requestedPort);
     if (targetResult.isErr()) {

@@ -3,7 +3,6 @@ import { join } from "path";
 import { existsSync, mkdirSync } from "fs";
 
 const FIRECRACKER_VERSION = "v1.10.1";
-const CLOUD_HYPERVISOR_VERSION = "v43.0";
 const ALPINE_VERSION = "3.21";
 
 const ASSETS_DIR = join(import.meta.dir, "..", "assets");
@@ -106,54 +105,6 @@ async function installFirecracker(): Promise<void> {
     await $`lima sudo mv /tmp/${releaseDir}/jailer-${FIRECRACKER_VERSION}-${arch} /usr/local/bin/jailer`;
     await $`lima sudo chmod +x /usr/local/bin/firecracker /usr/local/bin/jailer`;
     await $`lima rm -rf /tmp/${releaseDir}`;
-  });
-}
-
-async function installCloudHypervisor(): Promise<void> {
-  const hasCloudHypervisor =
-    (await $`lima which cloud-hypervisor`.quiet().nothrow()).exitCode === 0;
-
-  if (hasCloudHypervisor) {
-    const version = (await $`lima cloud-hypervisor --version`.text()).trim();
-    console.log(`Cloud Hypervisor already installed: ${version}`);
-    return;
-  }
-
-  await run("Installing Cloud Hypervisor", async () => {
-    const arch = await getArch();
-    // Cloud Hypervisor uses different arch naming
-    const chArch = arch === "aarch64" ? "aarch64" : "x86_64";
-    const url = `https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/${CLOUD_HYPERVISOR_VERSION}/cloud-hypervisor-static-${chArch}`;
-
-    await $`lima bash -c "curl -sL '${url}' -o /tmp/cloud-hypervisor"`;
-    await $`lima sudo mv /tmp/cloud-hypervisor /usr/local/bin/cloud-hypervisor`;
-    await $`lima sudo chmod +x /usr/local/bin/cloud-hypervisor`;
-  });
-}
-
-async function installDocker(): Promise<void> {
-  const hasDocker =
-    (await $`lima which docker`.quiet().nothrow()).exitCode === 0;
-
-  if (hasDocker) {
-    const version = (await $`lima docker --version`.text()).trim();
-    console.log(`Docker already installed: ${version}`);
-    return;
-  }
-
-  await run("Installing Docker", async () => {
-    const script = `
-# Install Docker using the official convenience script
-curl -fsSL https://get.docker.com | sudo sh
-
-# Add current user to docker group
-sudo usermod -aG docker $USER
-
-# Start Docker service
-sudo systemctl enable docker
-sudo systemctl start docker
-`;
-    await $`lima bash -c ${script}`;
   });
 }
 
@@ -306,39 +257,28 @@ async function main() {
   }
 
   // Step 1: Setup Lima VM
-  console.log("\n[1/7] Setting up Lima VM...\n");
+  console.log("\n[1/5] Setting up Lima VM...\n");
   await setupLima();
 
   // Step 2: Install Firecracker
-  console.log("\n[2/7] Installing Firecracker...\n");
+  console.log("\n[2/5] Installing Firecracker...\n");
   await installFirecracker();
 
-  // Step 3: Install Cloud Hypervisor
-  console.log("\n[3/7] Installing Cloud Hypervisor...\n");
-  await installCloudHypervisor();
-
-  // Step 4: Install Docker
-  console.log("\n[4/7] Installing Docker...\n");
-  await installDocker();
-
-  // Step 5: Download kernel
-  console.log("\n[5/7] Downloading Alpine Linux kernel...\n");
+  // Step 3: Download kernel
+  console.log("\n[3/5] Downloading Alpine Linux kernel...\n");
   await downloadKernel();
 
-  // Step 6: Create rootfs
-  console.log("\n[6/7] Creating Alpine Linux rootfs...\n");
+  // Step 4: Create rootfs
+  console.log("\n[4/5] Creating Alpine Linux rootfs...\n");
   await createRootfs();
 
-  // Step 7: Setup networking
-  console.log("\n[7/7] Setting up networking...\n");
+  // Step 5: Setup networking
+  console.log("\n[5/5] Setting up networking...\n");
   await setupNetworking();
 
   console.log("\n================");
   console.log("Setup complete!\n");
-  console.log("Installed runtimes:");
-  console.log("  - Firecracker (microVMs)");
-  console.log("  - Cloud Hypervisor (microVMs)");
-  console.log("  - Docker (containers)");
+  console.log("Installed runtime: Firecracker (microVMs)");
   console.log("\nAssets location:");
   console.log(`  Kernel: ${KERNEL_PATH}`);
   console.log(`  Rootfs: ${ROOTFS_PATH}`);
@@ -356,37 +296,6 @@ const machine = new Machine({
 });
 
 await machine.start();
-`);
-
-  console.log("--- Cloud Hypervisor Example ---");
-  console.log(`
-import { Machine } from "@hyperfleet/cloud-hypervisor";
-
-const machine = new Machine({
-  socketPath: "/tmp/cloud-hypervisor.sock",
-  payload: {
-    kernel: "${KERNEL_PATH}",
-    cmdline: "console=ttyS0",
-  },
-  cpus: { boot_vcpus: 1, max_vcpus: 1 },
-  memory: { size: 128 * 1024 * 1024 },
-  disks: [{ path: "${ROOTFS_PATH}" }],
-});
-
-await machine.start();
-`);
-
-  console.log("--- Docker Example ---");
-  console.log(`
-import { Container } from "@hyperfleet/docker";
-
-const container = new Container({
-  id: "my-container",
-  image: "alpine:latest",
-  cmd: ["sleep", "infinity"],
-});
-
-await container.start();
 `);
 }
 

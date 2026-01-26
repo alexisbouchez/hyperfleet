@@ -43,8 +43,6 @@ describe("Database Client", () => {
           tap_ip: null,
           guest_ip: null,
           guest_mac: null,
-          image: null,
-          container_id: null,
           config_json: "{}",
         })
         .execute();
@@ -69,12 +67,11 @@ describe("Database Client", () => {
           id: "update-test",
           name: "original-name",
           status: "pending",
-          runtime_type: "docker",
+          runtime_type: "firecracker",
           vcpu_count: 1,
           mem_size_mib: 256,
-          kernel_image_path: "",
-          socket_path: "",
-          image: "nginx:latest",
+          kernel_image_path: "/kernel",
+          socket_path: "/sock",
           config_json: "{}",
         })
         .execute();
@@ -143,20 +140,19 @@ describe("Database Client", () => {
             config_json: "{}",
           },
           {
-            id: "docker-1",
-            name: "docker-1",
+            id: "fc-2",
+            name: "firecracker-2",
             status: "running",
-            runtime_type: "docker",
+            runtime_type: "firecracker",
             vcpu_count: 1,
             mem_size_mib: 256,
-            kernel_image_path: "",
-            socket_path: "",
-            image: "nginx",
+            kernel_image_path: "/kernel",
+            socket_path: "/sock",
             config_json: "{}",
           },
           {
-            id: "fc-2",
-            name: "firecracker-2",
+            id: "fc-3",
+            name: "firecracker-3",
             status: "stopped",
             runtime_type: "firecracker",
             vcpu_count: 4,
@@ -175,7 +171,7 @@ describe("Database Client", () => {
         .where("runtime_type", "=", "firecracker")
         .execute();
 
-      expect(firecrackerMachines.length).toBe(2);
+      expect(firecrackerMachines.length).toBe(3);
 
       // Filter by status
       const runningMachines = await db
@@ -187,14 +183,14 @@ describe("Database Client", () => {
       expect(runningMachines.length).toBe(2);
 
       // Combined filter
-      const runningFirecracker = await db
+      const stoppedFirecracker = await db
         .selectFrom("machines")
         .selectAll()
         .where("runtime_type", "=", "firecracker")
-        .where("status", "=", "running")
+        .where("status", "=", "stopped")
         .execute();
 
-      expect(runningFirecracker.length).toBe(1);
+      expect(stoppedFirecracker.length).toBe(1);
     });
   });
 

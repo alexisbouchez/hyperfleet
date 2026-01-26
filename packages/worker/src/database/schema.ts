@@ -15,7 +15,7 @@ export type MachineStatus =
 /**
  * Runtime type enum
  */
-export type RuntimeType = "firecracker" | "docker" | "cloud-hypervisor";
+export type RuntimeType = "firecracker";
 
 /**
  * Machines table schema
@@ -36,9 +36,6 @@ export interface MachinesTable {
   tap_ip: string | null;
   guest_ip: string | null;
   guest_mac: string | null;
-  // Docker-specific fields
-  container_id: string | null;
-  image: string | null;
   // Common fields
   pid: number | null;
   config_json: string;

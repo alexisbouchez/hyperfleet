@@ -1,7 +1,7 @@
 import net from "node:net";
 import { customAlphabet } from "nanoid";
 import { Result } from "better-result";
-import type { Kysely, Database, MachineStatus, Machine, RuntimeType } from "@hyperfleet/worker/database";
+import type { Kysely, Database, MachineStatus, Machine } from "@hyperfleet/worker/database";
 import type { Logger } from "@hyperfleet/logger";
 import {
   NotFoundError,
@@ -11,7 +11,7 @@ import {
   type HyperfleetError,
 } from "@hyperfleet/errors";
 import { NetworkManager, type VMNetworkConfig } from "@hyperfleet/network";
-import { validateMachinePaths, sanitizePath } from "./validation";
+import { validateMachinePaths } from "./validation";
 import type { CreateMachineBody, MachineResponse, ExecBody, ExecResponse, NetworkConfig } from "../types";
 import { RuntimeFactory } from "./runtime-factory";
 import { getGlobalRuntimeManager } from "./runtime-manager";
@@ -180,8 +180,6 @@ export class MachineService {
       rootfs_path: machine.rootfs_path,
       network,
       exposed_ports: exposedPorts,
-      image: machine.image,
-      container_id: machine.container_id,
       pid: machine.pid,
       created_at: machine.created_at,
       updated_at: machine.updated_at,
@@ -189,10 +187,6 @@ export class MachineService {
   }
 
   private getExposedPorts(machine: Machine): number[] | undefined {
-    if (machine.runtime_type === "docker") {
-      return undefined;
-    }
-
     const configResult = Result.try(() => JSON.parse(machine.config_json) as MachineConfig);
     if (configResult.isErr()) {
       this.logger?.warn("Failed to parse machine config for exposed ports", {
@@ -215,17 +209,13 @@ export class MachineService {
   }
 
   /**
-   * List all machines, optionally filtered by status and runtime_type
+   * List all machines, optionally filtered by status
    */
-  async list(status?: MachineStatus, runtimeType?: RuntimeType): Promise<MachineResponse[]> {
+  async list(status?: MachineStatus): Promise<MachineResponse[]> {
     let query = this.db.selectFrom("machines").selectAll();
 
     if (status) {
       query = query.where("status", "=", status);
-    }
-
-    if (runtimeType) {
-      query = query.where("runtime_type", "=", runtimeType);
     }
 
     const machines = await query.orderBy("created_at", "desc").execute();
@@ -246,30 +236,11 @@ export class MachineService {
   }
 
   /**
-   * Create a new machine (supports Firecracker, Docker, and Cloud Hypervisor)
+   * Create a new Firecracker machine
    */
   async create(body: CreateMachineBody): Promise<Result<MachineResponse, HyperfleetError>> {
     const id = generateMachineId();
-    const runtimeType: RuntimeType = body.runtime_type || "firecracker";
 
-    if (runtimeType === "docker") {
-      return this.createDockerMachine(id, body);
-    }
-
-    if (runtimeType === "cloud-hypervisor") {
-      return this.createCloudHypervisorMachine(id, body);
-    }
-
-    return this.createFirecrackerMachine(id, body);
-  }
-
-  /**
-   * Create a new Firecracker machine
-   */
-  private async createFirecrackerMachine(
-    id: string,
-    body: CreateMachineBody
-  ): Promise<Result<MachineResponse, HyperfleetError>> {
     // Validate kernel and rootfs paths
     const validationResult = await validateMachinePaths(
       body.kernel_image_path,
@@ -359,202 +330,6 @@ export class MachineService {
         tap_ip: networkConfig?.tap_ip ?? null,
         guest_ip: networkConfig?.guest_ip ?? null,
         guest_mac: networkConfig?.guest_mac ?? null,
-        image: null,
-        container_id: null,
-        config_json: JSON.stringify(config),
-      })
-      .execute();
-
-    const machine = await this.get(id);
-    return Result.ok(machine!);
-  }
-
-  /**
-   * Create a new Docker container
-   */
-  private async createDockerMachine(
-    id: string,
-    body: CreateMachineBody
-  ): Promise<Result<MachineResponse, HyperfleetError>> {
-    if (!body.image) {
-      return Result.err(
-        new ValidationError({ message: "image is required for Docker runtime" })
-      );
-    }
-
-    // Validate volume host paths for path traversal
-    if (body.volumes) {
-      for (const volume of body.volumes) {
-        const pathResult = sanitizePath(volume.host_path);
-        if (pathResult.isErr()) {
-          return pathResult as Result<never, HyperfleetError>;
-        }
-      }
-    }
-
-    const config = {
-      id,
-      name: `hyperfleet-${id}`,
-      image: body.image,
-      cmd: body.cmd,
-      entrypoint: body.entrypoint,
-      cpus: body.vcpu_count,
-      memoryMib: body.mem_size_mib,
-      env: body.env,
-      ports: body.ports?.map((p) => ({
-        hostPort: p.host_port,
-        containerPort: p.container_port,
-        protocol: p.protocol,
-      })),
-      volumes: body.volumes?.map((v) => ({
-        hostPath: v.host_path,
-        containerPath: v.container_path,
-        readOnly: v.read_only,
-      })),
-      workingDir: body.working_dir,
-      user: body.user,
-      privileged: body.privileged,
-      restart: body.restart,
-    };
-
-    await this.db
-      .insertInto("machines")
-      .values({
-        id,
-        name: body.name,
-        status: "pending",
-        runtime_type: "docker",
-        vcpu_count: body.vcpu_count,
-        mem_size_mib: body.mem_size_mib,
-        kernel_image_path: "", // Not used for Docker
-        kernel_args: null,
-        rootfs_path: null,
-        socket_path: "", // Not used for Docker
-        tap_device: null,
-        tap_ip: null,
-        guest_ip: null,
-        guest_mac: null,
-        image: body.image,
-        container_id: null,
-        config_json: JSON.stringify(config),
-      })
-      .execute();
-
-    const machine = await this.get(id);
-    return Result.ok(machine!);
-  }
-
-  /**
-   * Create a new Cloud Hypervisor machine
-   */
-  private async createCloudHypervisorMachine(
-    id: string,
-    body: CreateMachineBody
-  ): Promise<Result<MachineResponse, HyperfleetError>> {
-    // Validate kernel and rootfs paths
-    const validationResult = await validateMachinePaths(
-      body.kernel_image_path,
-      body.rootfs_path
-    );
-
-    if (validationResult.isErr()) {
-      return validationResult as Result<never, HyperfleetError>;
-    }
-
-    const { kernelPath, rootfsPath } = validationResult.unwrap();
-    const socketPath = `/tmp/cloud-hypervisor-${id}.sock`;
-
-    // Auto-allocate network if not specified and we're on Linux
-    let networkConfig: NetworkConfig | undefined = body.network;
-    let vmNetwork: VMNetworkConfig | undefined;
-
-    if (!networkConfig && process.platform === "linux") {
-      const netManager = getNetManager();
-      const allocResult = await netManager.allocateNetwork(id);
-      if (allocResult.isOk()) {
-        vmNetwork = allocResult.unwrap();
-        networkConfig = {
-          tap_device: vmNetwork.tapDevice,
-          tap_ip: vmNetwork.hostIp,
-          guest_ip: vmNetwork.ip,
-          guest_mac: vmNetwork.mac,
-        };
-        this.logger?.info("Auto-allocated network for machine", {
-          machineId: id,
-          ip: vmNetwork.ip,
-          tap: vmNetwork.tapDevice,
-        });
-      } else {
-        this.logger?.warn("Failed to auto-allocate network", {
-          machineId: id,
-          error: allocResult.error.message,
-        });
-      }
-    }
-
-    // Build kernel args with network configuration if available
-    let kernelArgs = body.kernel_args ?? "console=ttyS0 root=/dev/vda rw";
-    if (vmNetwork?.kernelArgs) {
-      kernelArgs = `${kernelArgs} ${vmNetwork.kernelArgs}`;
-    }
-
-    const exposedPortsResult = normalizeExposedPorts(body.exposed_ports);
-    if (exposedPortsResult.isErr()) {
-      return Result.err(exposedPortsResult.error);
-    }
-
-    const config = {
-      socketPath,
-      payload: {
-        kernel: kernelPath,
-        cmdline: kernelArgs,
-      },
-      cpus: {
-        boot_vcpus: body.vcpu_count,
-        max_vcpus: body.vcpu_count,
-      },
-      memory: {
-        size: body.mem_size_mib * 1024 * 1024, // Convert MiB to bytes
-      },
-      disks: rootfsPath
-        ? [
-            {
-              path: rootfsPath,
-              readonly: false,
-            },
-          ]
-        : undefined,
-      net: networkConfig?.tap_device
-        ? [
-            {
-              tap: networkConfig.tap_device,
-              ip: networkConfig.tap_ip,
-              mac: networkConfig.guest_mac,
-            },
-          ]
-        : undefined,
-      exposedPorts: exposedPortsResult.unwrap(),
-    };
-
-    await this.db
-      .insertInto("machines")
-      .values({
-        id,
-        name: body.name,
-        status: "pending",
-        runtime_type: "cloud-hypervisor",
-        vcpu_count: body.vcpu_count,
-        mem_size_mib: body.mem_size_mib,
-        kernel_image_path: kernelPath,
-        kernel_args: kernelArgs,
-        rootfs_path: rootfsPath ?? null,
-        socket_path: socketPath,
-        tap_device: networkConfig?.tap_device ?? null,
-        tap_ip: networkConfig?.tap_ip ?? null,
-        guest_ip: networkConfig?.guest_ip ?? null,
-        guest_mac: networkConfig?.guest_mac ?? null,
-        image: null,
-        container_id: null,
         config_json: JSON.stringify(config),
       })
       .execute();
@@ -567,7 +342,7 @@ export class MachineService {
    * Delete a machine
    */
   async delete(id: string): Promise<boolean> {
-    // Get machine to check runtime type
+    // Get machine to check if it exists
     const machine = await this.db
       .selectFrom("machines")
       .selectAll()
@@ -578,16 +353,14 @@ export class MachineService {
       return false;
     }
 
-    // Release network allocation for VM-based runtimes
-    if (machine.runtime_type === "firecracker" || machine.runtime_type === "cloud-hypervisor") {
-      const netManager = getNetManager();
-      const releaseResult = await netManager.releaseNetwork(id);
-      if (releaseResult.isErr()) {
-        this.logger?.warn("Failed to release network", {
-          machineId: id,
-          error: releaseResult.error.message,
-        });
-      }
+    // Release network allocation
+    const netManager = getNetManager();
+    const releaseResult = await netManager.releaseNetwork(id);
+    if (releaseResult.isErr()) {
+      this.logger?.warn("Failed to release network", {
+        machineId: id,
+        error: releaseResult.error.message,
+      });
     }
 
     const result = await this.db
@@ -656,7 +429,7 @@ export class MachineService {
         // Start the runtime (spawns actual process)
         await runtime.start();
 
-        // Get the PID/container ID
+        // Get the PID
         const pid = runtime.getPid();
 
         // Register in the global runtime manager for later operations
@@ -665,17 +438,8 @@ export class MachineService {
 
         // Update DB with running status and PID
         const updated = await this.updateStatus(id, "running", {
-          pid: typeof pid === "number" ? pid : null,
+          pid: pid,
         });
-
-        // For Docker, also store the container ID
-        if (machineRecord.runtime_type === "docker" && typeof pid === "string") {
-          await this.db
-            .updateTable("machines")
-            .set({ container_id: pid })
-            .where("id", "=", id)
-            .execute();
-        }
 
         this.logger?.info("Machine started successfully", { machineId: id, pid });
         return updated!;
@@ -755,34 +519,7 @@ export class MachineService {
       return Result.err(new NotFoundError({ message: "Machine not found" }));
     }
 
-    // For Docker containers, use the runtime's restart method directly
-    // This avoids container name conflicts from stop+start
-    if (machine.runtime_type === "docker") {
-      const runtimeManager = getGlobalRuntimeManager(this.logger);
-      const runtime = runtimeManager.get(id);
-
-      if (!runtime) {
-        return Result.err(new RuntimeError({ message: "Runtime not found - is the container running?" }));
-      }
-
-      this.logger?.info("Restarting machine", { machineId: id });
-
-      return Result.tryPromise({
-        try: async () => {
-          // Use short restart timeout (2s graceful, then force)
-          await runtime.restart(2);
-          this.logger?.info("Machine restarted successfully", { machineId: id });
-          return (await this.get(id))!;
-        },
-        catch: (error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          this.logger?.error("Failed to restart machine", { machineId: id, error: message });
-          return new RuntimeError({ message: `Restart failed: ${message}`, cause: error });
-        },
-      });
-    }
-
-    // For VM runtimes, use stop+start
+    // Use stop+start for VM runtimes
     const stopResult = await this.stop(id);
     if (stopResult.isErr()) {
       return stopResult;
@@ -791,7 +528,7 @@ export class MachineService {
   }
 
   /**
-   * Execute a command on a machine
+   * Execute a command on a machine via vsock
    */
   async exec(
     id: string,
@@ -814,28 +551,7 @@ export class MachineService {
     const timeoutSeconds = Math.max(1, body.timeout ?? DEFAULT_EXEC_TIMEOUT_SECONDS);
     const timeoutMs = timeoutSeconds * 1000;
 
-    // For Docker containers, use the runtime's exec method directly
-    if (machine.runtime_type === "docker") {
-      const runtimeManager = getGlobalRuntimeManager(this.logger);
-      const runtime = runtimeManager.get(id);
-
-      if (!runtime) {
-        return Result.err(new RuntimeError({ message: "Runtime not found - is the container running?" }));
-      }
-
-      return Result.tryPromise({
-        try: async () => {
-          const result = await runtime.exec(body.cmd, timeoutMs);
-          return result;
-        },
-        catch: (error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          return new RuntimeError({ message: `Exec failed: ${message}`, cause: error });
-        },
-      });
-    }
-
-    // For VM runtimes, use vsock
+    // Use vsock for command execution
     const configResult = Result.try(() => JSON.parse(machine.config_json) as MachineConfig);
     const config = configResult.unwrapOr(null);
     const udsPath = config?.vsock?.uds_path;

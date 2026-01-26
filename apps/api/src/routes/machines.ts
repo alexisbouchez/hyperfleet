@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import type { MachineStatus, RuntimeType } from "@hyperfleet/worker/database";
+import type { MachineStatus } from "@hyperfleet/worker/database";
 import type { MachineService } from "../services/machines";
 import type { AuthService } from "../services/auth";
 import type { Logger } from "@hyperfleet/logger";
@@ -15,12 +15,6 @@ const machineStatusEnum = t.Union([
   t.Literal("failed"),
 ]);
 
-const runtimeTypeEnum = t.Union([
-  t.Literal("firecracker"),
-  t.Literal("docker"),
-  t.Literal("cloud-hypervisor"),
-]);
-
 const networkConfig = t.Object({
   tap_device: t.Optional(t.String()),
   tap_ip: t.Optional(t.String()),
@@ -28,23 +22,11 @@ const networkConfig = t.Object({
   guest_mac: t.Optional(t.String()),
 });
 
-const portMapping = t.Object({
-  host_port: t.Number({ minimum: 1, maximum: 65535 }),
-  container_port: t.Number({ minimum: 1, maximum: 65535 }),
-  protocol: t.Optional(t.Union([t.Literal("tcp"), t.Literal("udp")])),
-});
-
-const volumeMount = t.Object({
-  host_path: t.String({ minLength: 1 }),
-  container_path: t.String({ minLength: 1 }),
-  read_only: t.Optional(t.Boolean()),
-});
-
 const machineResponse = t.Object({
   id: t.String(),
   name: t.String(),
   status: machineStatusEnum,
-  runtime_type: runtimeTypeEnum,
+  runtime_type: t.Literal("firecracker"),
   vcpu_count: t.Number(),
   mem_size_mib: t.Number(),
   kernel_image_path: t.String(),
@@ -52,8 +34,6 @@ const machineResponse = t.Object({
   rootfs_path: t.Nullable(t.String()),
   network: t.Nullable(networkConfig),
   exposed_ports: t.Optional(t.Array(t.Number({ minimum: 1, maximum: 65535 }))),
-  image: t.Nullable(t.String()),
-  container_id: t.Nullable(t.String()),
   pid: t.Nullable(t.Number()),
   created_at: t.String(),
   updated_at: t.String(),
@@ -118,20 +98,16 @@ export const machineRoutes = (disableAuth: boolean) =>
           return { error: "unauthorized", message: "Invalid or missing API key" };
         }
 
-        return machineService.list(
-          query.status as MachineStatus | undefined,
-          query.runtime_type as RuntimeType | undefined
-        );
+        return machineService.list(query.status as MachineStatus | undefined);
       },
       {
         query: t.Object({
           status: t.Optional(machineStatusEnum),
-          runtime_type: t.Optional(runtimeTypeEnum),
         }),
         response: t.Union([t.Array(machineResponse), errorResponse]),
         detail: {
           summary: "List machines",
-          description: "List all machines, optionally filtered by status and runtime type",
+          description: "List all Firecracker machines, optionally filtered by status",
         },
       }
     )
@@ -157,11 +133,9 @@ export const machineRoutes = (disableAuth: boolean) =>
       {
         body: t.Object({
           name: t.String({ minLength: 1, description: "Machine name" }),
-          runtime_type: t.Optional(runtimeTypeEnum),
           vcpu_count: t.Number({ minimum: 1, description: "Number of vCPUs" }),
           mem_size_mib: t.Number({ minimum: 4, description: "Memory in MiB" }),
-          // Firecracker-specific fields
-          kernel_image_path: t.String({ description: "Path to kernel image (required for firecracker)" }),
+          kernel_image_path: t.String({ description: "Path to kernel image" }),
           kernel_args: t.Optional(t.String({ description: "Kernel boot arguments" })),
           rootfs_path: t.Optional(t.String({ description: "Path to root filesystem image" })),
           network: t.Optional(t.Object({
@@ -172,24 +146,8 @@ export const machineRoutes = (disableAuth: boolean) =>
           }, { description: "Network configuration for internet access" })),
           exposed_ports: t.Optional(t.Array(
             t.Number({ minimum: 1, maximum: 65535 }),
-            { description: "Ports to expose via reverse proxy (VM runtimes only)" }
+            { description: "Ports to expose via reverse proxy" }
           )),
-          // Docker-specific fields
-          image: t.Optional(t.String({ description: "Docker image (required for docker)" })),
-          cmd: t.Optional(t.Array(t.String(), { description: "Command to run" })),
-          entrypoint: t.Optional(t.String({ description: "Entrypoint override" })),
-          env: t.Optional(t.Record(t.String(), t.String(), { description: "Environment variables" })),
-          ports: t.Optional(t.Array(portMapping, { description: "Port mappings" })),
-          volumes: t.Optional(t.Array(volumeMount, { description: "Volume mounts" })),
-          working_dir: t.Optional(t.String({ description: "Working directory" })),
-          user: t.Optional(t.String({ description: "User to run as" })),
-          privileged: t.Optional(t.Boolean({ description: "Run in privileged mode" })),
-          restart: t.Optional(t.Union([
-            t.Literal("no"),
-            t.Literal("always"),
-            t.Literal("on-failure"),
-            t.Literal("unless-stopped"),
-          ], { description: "Restart policy" })),
         }),
         response: {
           201: machineResponse,
@@ -198,7 +156,7 @@ export const machineRoutes = (disableAuth: boolean) =>
         },
         detail: {
           summary: "Create machine",
-          description: "Create a new machine with the specified configuration. Set runtime_type to 'docker' for containers or 'firecracker' (default) for microVMs.",
+          description: "Create a new Firecracker microVM with the specified configuration.",
         },
       }
     )

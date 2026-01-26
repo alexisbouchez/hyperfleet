@@ -1,14 +1,13 @@
 /**
  * @hyperfleet/runtime
  *
- * Shared runtime interface for container/VM management
- * Supports multiple backends: Firecracker microVMs, Docker containers
+ * Shared runtime interface for Firecracker microVM management
  */
 
 /**
  * Runtime type discriminator
  */
-export type RuntimeType = "firecracker" | "docker" | "cloud-hypervisor";
+export type RuntimeType = "firecracker";
 
 /**
  * Common status for all runtime types
@@ -128,7 +127,7 @@ export interface BaseRuntimeConfig {
  */
 export interface Runtime {
   /**
-   * The type of runtime (firecracker, docker, etc.)
+   * The type of runtime
    */
   readonly type: RuntimeType;
 
@@ -173,9 +172,9 @@ export interface Runtime {
   isRunning(): boolean;
 
   /**
-   * Get the process ID (or container ID for Docker)
+   * Get the process ID
    */
-  getPid(): number | string | null;
+  getPid(): number | null;
 
   /**
    * Get runtime instance information

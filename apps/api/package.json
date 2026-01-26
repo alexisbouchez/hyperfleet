@@ -14,8 +14,6 @@
     "better-result": "^2.5.1",
     "@hyperfleet/worker": "workspace:*",
     "@hyperfleet/firecracker": "workspace:*",
-    "@hyperfleet/docker": "workspace:*",
-    "@hyperfleet/cloud-hypervisor": "workspace:*",
     "@hyperfleet/runtime": "workspace:*",
     "@hyperfleet/logger": "workspace:*",
     "@hyperfleet/errors": "workspace:*",

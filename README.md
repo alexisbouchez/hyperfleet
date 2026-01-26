@@ -1,30 +1,6 @@
 # Hyperfleet
 
-A multi-runtime container and microVM orchestration platform. Hyperfleet provides a unified API for managing workloads across different isolation technologies.
-
-## Supported Runtimes
-
-| Runtime | Type | Use Case |
-|---------|------|----------|
-| **Firecracker** | microVM | Secure, fast-booting lightweight VMs |
-| **Cloud Hypervisor** | microVM | Feature-rich VMs with hot-plug support |
-| **Docker** | Container | Standard container workloads |
-
-## Project Structure
-
-```
-hyperfleet/
-├── apps/
-│   └── api/                    # REST API server (Elysia)
-├── packages/
-│   ├── runtime/               # Shared runtime interface
-│   ├── firecracker/           # Firecracker microVM SDK
-│   ├── cloud-hypervisor/      # Cloud Hypervisor SDK
-│   ├── docker/                # Docker container SDK
-│   └── worker/                # Database and shared utilities
-└── scripts/
-    └── setup.ts               # Development setup script
-```
+A Firecracker microVM orchestration platform. Hyperfleet provides a unified API for managing secure, fast-booting lightweight virtual machines.
 
 ## Quick Start
 
@@ -43,7 +19,7 @@ cd hyperfleet
 # Install dependencies
 bun install
 
-# Run setup (installs Firecracker, Cloud Hypervisor, Docker in Lima VM)
+# Run setup (installs Firecracker in Lima VM)
 bun run setup
 ```
 
@@ -64,43 +40,11 @@ The API will be available at `http://localhost:3000` with Swagger docs at `/swag
 curl -X POST http://localhost:3000/machines \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "my-firecracker-vm",
-    "runtime_type": "firecracker",
+    "name": "my-vm",
     "vcpu_count": 2,
     "mem_size_mib": 512,
     "kernel_image_path": "/path/to/vmlinux",
     "rootfs_path": "/path/to/rootfs.ext4"
-  }'
-```
-
-### Create a Cloud Hypervisor microVM
-
-```bash
-curl -X POST http://localhost:3000/machines \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-ch-vm",
-    "runtime_type": "cloud-hypervisor",
-    "vcpu_count": 4,
-    "mem_size_mib": 1024,
-    "kernel_image_path": "/path/to/vmlinux",
-    "rootfs_path": "/path/to/rootfs.ext4"
-  }'
-```
-
-### Create a Docker Container
-
-```bash
-curl -X POST http://localhost:3000/machines \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-container",
-    "runtime_type": "docker",
-    "vcpu_count": 2,
-    "mem_size_mib": 512,
-    "image": "nginx:latest",
-    "ports": [{"host_port": 8080, "container_port": 80}],
-    "env": {"NODE_ENV": "production"}
   }'
 ```
 
@@ -109,9 +53,6 @@ curl -X POST http://localhost:3000/machines \
 ```bash
 # List all machines
 curl http://localhost:3000/machines
-
-# Filter by runtime type
-curl http://localhost:3000/machines?runtime_type=docker
 
 # Filter by status
 curl http://localhost:3000/machines?status=running
@@ -146,8 +87,6 @@ curl -X POST http://localhost:3000/machines/{id}/exec \
 
 ## SDK Usage
 
-### Firecracker
-
 ```typescript
 import { Machine, DrivesBuilder } from "@hyperfleet/firecracker";
 
@@ -174,91 +113,9 @@ console.log(result.stdout);
 await machine.shutdown();
 ```
 
-### Cloud Hypervisor
-
-```typescript
-import { Machine } from "@hyperfleet/cloud-hypervisor";
-
-const machine = new Machine({
-  socketPath: "/tmp/cloud-hypervisor.sock",
-  payload: {
-    kernel: "/path/to/vmlinux",
-    cmdline: "console=ttyS0 root=/dev/vda rw",
-  },
-  cpus: {
-    boot_vcpus: 4,
-    max_vcpus: 8,  // Supports CPU hot-plug
-  },
-  memory: {
-    size: 1024 * 1024 * 1024,  // 1GB in bytes
-    hotplug_size: 512 * 1024 * 1024,  // Allow hot-adding 512MB
-  },
-  disks: [{
-    path: "/path/to/rootfs.ext4",
-    readonly: false,
-  }],
-  net: [{
-    tap: "tap0",
-    mac: "02:00:00:00:00:01",
-  }],
-});
-
-await machine.start();
-
-// Hot-add a disk
-await machine.addDisk({ path: "/path/to/data.ext4", id: "data" });
-
-// Resize resources
-await machine.resize({ desired_vcpus: 6, desired_ram: 2 * 1024 * 1024 * 1024 });
-
-// Create a snapshot
-await machine.createSnapshot("file:///path/to/snapshot");
-
-await machine.shutdown();
-```
-
-### Docker
-
-```typescript
-import { Container } from "@hyperfleet/docker";
-
-const container = new Container({
-  id: "my-app",
-  image: "node:20-alpine",
-  cmd: ["node", "server.js"],
-  cpus: 2,
-  memoryMib: 512,
-  env: {
-    NODE_ENV: "production",
-    PORT: "3000",
-  },
-  ports: [
-    { hostPort: 3000, containerPort: 3000 },
-  ],
-  volumes: [
-    { hostPath: "/data/app", containerPath: "/app", readOnly: false },
-  ],
-  restart: "unless-stopped",
-});
-
-await container.start();
-
-// Execute a command
-const result = await container.exec(["node", "--version"]);
-console.log(result.stdout);
-
-// Get logs
-const logs = await container.logs({ tail: 100 });
-console.log(logs);
-
-// Stop and remove
-await container.stop();
-await container.remove();
-```
-
 ## Runtime Interface
 
-All runtimes implement the shared `Runtime` interface:
+All machines implement the shared `Runtime` interface:
 
 ```typescript
 interface Runtime {
@@ -272,7 +129,7 @@ interface Runtime {
   shutdown(timeoutMs?: number): Promise<void>;
 
   isRunning(): boolean;
-  getPid(): number | string | null;
+  getPid(): number | null;
   getInfo(): Promise<RuntimeInfo>;
 
   exec(cmd: string[], timeoutMs?: number): Promise<ExecResult>;
@@ -297,11 +154,9 @@ bun run setup
 This will:
 1. Create/start a Lima VM with nested virtualization
 2. Install Firecracker
-3. Install Cloud Hypervisor
-4. Install Docker
-5. Download Alpine Linux kernel
-6. Create Alpine Linux rootfs
-7. Configure networking (TAP device, NAT)
+3. Download Alpine Linux kernel
+4. Create Alpine Linux rootfs
+5. Configure networking (TAP device, NAT)
 
 ### Manual Setup
 
@@ -322,61 +177,6 @@ lima sudo chmod 666 /dev/kvm
 ```bash
 lima ls -la /dev/kvm
 ```
-
-## Architecture
-
-### Database
-
-Hyperfleet uses SQLite (via Kysely ORM) to store machine configurations:
-
-```sql
-CREATE TABLE machines (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  status TEXT NOT NULL,  -- pending, starting, running, paused, stopping, stopped, failed
-  runtime_type TEXT NOT NULL,  -- firecracker, docker, cloud-hypervisor
-  vcpu_count INTEGER NOT NULL,
-  mem_size_mib INTEGER NOT NULL,
-  kernel_image_path TEXT,
-  kernel_args TEXT,
-  rootfs_path TEXT,
-  socket_path TEXT,
-  image TEXT,  -- Docker image
-  container_id TEXT,  -- Docker container ID
-  pid INTEGER,
-  config_json TEXT NOT NULL,
-  created_at TEXT,
-  updated_at TEXT
-);
-```
-
-### Handler Pattern
-
-Each runtime uses a handler chain pattern for extensible lifecycle management:
-
-```typescript
-// Custom handler
-const MyHandler: Handler = async (machine) => {
-  console.log(`Starting machine ${machine.id}`);
-};
-
-// Add to handler chain
-machine.handlers.init.prepend("MyHandler", MyHandler);
-```
-
-## Feature Comparison
-
-| Feature | Firecracker | Cloud Hypervisor | Docker |
-|---------|-------------|------------------|--------|
-| Boot time | ~125ms | ~200ms | ~500ms |
-| Memory overhead | ~5MB | ~10MB | ~50MB |
-| CPU hot-plug | No | Yes | No |
-| Memory hot-plug | No | Yes | No |
-| Disk hot-plug | Yes | Yes | No |
-| Live migration | No | Yes | No |
-| Snapshots | Yes | Yes | No |
-| GPU passthrough | No | Yes | Yes |
-| Nested virtualization | No | Yes | N/A |
 
 ## Contributing
 

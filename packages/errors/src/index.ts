@@ -10,24 +10,6 @@ export const FirecrackerApiError = TaggedError("FirecrackerApiError")<{
 
 export type FirecrackerApiError = InstanceType<typeof FirecrackerApiError>;
 
-// Cloud Hypervisor API errors
-export const CloudHypervisorApiError = TaggedError("CloudHypervisorApiError")<{
-  message: string;
-  statusCode: number;
-  body?: string;
-}>();
-
-export type CloudHypervisorApiError = InstanceType<typeof CloudHypervisorApiError>;
-
-// Docker CLI errors
-export const DockerCliError = TaggedError("DockerCliError")<{
-  message: string;
-  exitCode: number;
-  stderr: string;
-}>();
-
-export type DockerCliError = InstanceType<typeof DockerCliError>;
-
 // Not found errors
 export const NotFoundError = TaggedError("NotFoundError")<{
   message: string;
@@ -83,8 +65,6 @@ export type CircuitOpenError = InstanceType<typeof CircuitOpenError>;
 // Union type for all Hyperfleet errors
 export type HyperfleetError =
   | FirecrackerApiError
-  | CloudHypervisorApiError
-  | DockerCliError
   | NotFoundError
   | ValidationError
   | TimeoutError
@@ -112,10 +92,6 @@ export function getHttpStatus(error: HyperfleetError): number {
       return 503;
     case "FirecrackerApiError":
       return error.statusCode >= 500 ? 502 : 400;
-    case "CloudHypervisorApiError":
-      return error.statusCode >= 500 ? 502 : 400;
-    case "DockerCliError":
-      return error.exitCode === 0 ? 500 : 400;
     case "RuntimeError":
     default:
       return 500;

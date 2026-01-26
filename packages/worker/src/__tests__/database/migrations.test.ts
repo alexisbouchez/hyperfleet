@@ -52,8 +52,6 @@ describe("Migrations", () => {
           tap_ip: "172.16.0.1",
           guest_ip: "172.16.0.2",
           guest_mac: "AA:BB:CC:DD:EE:FF",
-          image: null,
-          container_id: null,
           pid: 12345,
           config_json: JSON.stringify({ test: true }),
           error_message: null,
