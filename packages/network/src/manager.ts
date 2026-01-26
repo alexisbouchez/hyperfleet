@@ -46,8 +46,16 @@ import {
   detectExternalInterface,
   NATError,
 } from "./nat";
+import {
+  createBridge,
+  deleteBridge,
+  addInterfaceToBridge,
+  addIPToBridge,
+  deleteIPFromBridge,
+  BridgeError,
+} from "./bridge";
 
-export type NetworkError = TapError | NetlinkError | IPAMError | NATError;
+export type NetworkError = TapError | NetlinkError | IPAMError | NATError | BridgeError;
 
 export interface NetworkConfig {
   /** Subnet in CIDR notation (default: "172.16.0.0/24") */
@@ -56,6 +64,8 @@ export interface NetworkConfig {
   gateway?: string;
   /** TAP device prefix (default: "hf") */
   tapPrefix?: string;
+  /** Bridge device name (default: "hfbr0") */
+  bridgeName?: string;
   /** Enable NAT for internet access (default: true) */
   enableNAT?: boolean;
   /** External interface for NAT (auto-detected if not specified) */
@@ -102,6 +112,7 @@ export class NetworkManager {
       subnet: config.subnet ?? "172.16.0.0/24",
       gateway: config.gateway ?? "172.16.0.1",
       tapPrefix: config.tapPrefix ?? "hf",
+      bridgeName: config.bridgeName ?? "hfbr0",
       enableNAT: config.enableNAT ?? true,
       externalInterface: config.externalInterface ?? "",
     };
@@ -117,7 +128,8 @@ export class NetworkManager {
    * Initialize the network manager
    *
    * This sets up:
-   * - The gateway TAP device
+   * - A bridge for connecting VM TAP devices
+   * - Gateway IP on the bridge
    * - IP forwarding
    * - NAT rules
    */
@@ -137,40 +149,22 @@ export class NetworkManager {
     // Get gateway config from IPAM
     const gwConfig = this.ipam.getGatewayConfig();
 
-    // Create the gateway TAP device
-    const tapResult = createTapDevice({
-      name: gwConfig.tapDevice,
-      persistent: true,
-    });
-
-    if (tapResult.isErr()) {
-      return Result.err(tapResult.error);
+    // Create the bridge for VM networking
+    const bridgeResult = await createBridge(this.config.bridgeName);
+    if (bridgeResult.isErr()) {
+      return Result.err(bridgeResult.error);
     }
 
-    this.gatewayTap = tapResult.unwrap();
-
-    // Bring the interface up
-    const upResult = setInterfaceUp(this.gatewayTap.name, true);
-    if (upResult.isErr()) {
-      // Cleanup
-      closeTapDevice(this.gatewayTap.fd);
-      deleteTapDevice(this.gatewayTap.name);
-      this.gatewayTap = null;
-      return Result.err(upResult.error);
-    }
-
-    // Assign IP address to the gateway TAP
-    const ipResult = addIPAddress(
-      this.gatewayTap.name,
+    // Assign gateway IP address to the bridge
+    const ipResult = await addIPToBridge(
+      this.config.bridgeName,
       gwConfig.ip,
       gwConfig.prefixLen
     );
 
     if (ipResult.isErr()) {
       // Cleanup
-      closeTapDevice(this.gatewayTap.fd);
-      deleteTapDevice(this.gatewayTap.name);
-      this.gatewayTap = null;
+      await deleteBridge(this.config.bridgeName);
       return Result.err(ipResult.error);
     }
 
@@ -236,6 +230,16 @@ export class NetworkManager {
 
     const tap = tapResult.unwrap();
 
+    // Add TAP to bridge so it can communicate with the gateway
+    const bridgeResult = await addInterfaceToBridge(this.config.bridgeName, tap.name);
+    if (bridgeResult.isErr()) {
+      // Cleanup
+      closeTapDevice(tap.fd);
+      deleteTapDevice(tap.name);
+      this.ipam.release(machineId);
+      return Result.err(bridgeResult.error);
+    }
+
     // Bring the TAP interface up
     const upResult = setInterfaceUp(tap.name, true);
     if (upResult.isErr()) {
@@ -246,8 +250,12 @@ export class NetworkManager {
       return Result.err(upResult.error);
     }
 
-    // Store TAP device
-    this.vmTaps.set(machineId, tap);
+    // Close the file descriptor so Firecracker can open it exclusively
+    // The TAP device persists because it was created with persistent: true
+    closeTapDevice(tap.fd);
+
+    // Store TAP device info (without fd since it's closed)
+    this.vmTaps.set(machineId, { ...tap, fd: -1 });
 
     // Build kernel args for static IP configuration
     // Format: ip=<client-ip>:<server-ip>:<gw-ip>:<netmask>:<hostname>:<device>:<autoconf>
@@ -256,7 +264,7 @@ export class NetworkManager {
 
     const vmNetwork: VMNetworkConfig = {
       tapDevice: tap.name,
-      tapFd: tap.fd,
+      tapFd: -1, // fd is closed so Firecracker can open it
       ip: allocation.ip,
       prefixLen: allocation.prefixLen,
       gateway: allocation.gateway,
@@ -334,7 +342,7 @@ export class NetworkManager {
   /**
    * Shutdown the network manager
    *
-   * Releases all VM networks and cleans up gateway resources.
+   * Releases all VM networks and cleans up bridge resources.
    */
   async shutdown(): Promise<Result<void, NetworkError>> {
     // Release all VM networks
@@ -347,12 +355,15 @@ export class NetworkManager {
       await teardownNAT(this.config.subnet);
     }
 
-    // Delete gateway IP
-    if (this.gatewayTap) {
+    // Delete the bridge (this also removes the gateway IP)
+    if (this.initialized) {
       const gwConfig = this.ipam.getGatewayConfig();
-      deleteIPAddress(this.gatewayTap.name, gwConfig.ip, gwConfig.prefixLen);
+      await deleteIPFromBridge(this.config.bridgeName, gwConfig.ip, gwConfig.prefixLen);
+      await deleteBridge(this.config.bridgeName);
+    }
 
-      // Close and delete gateway TAP
+    // Clean up legacy gateway TAP if it exists
+    if (this.gatewayTap) {
       closeTapDevice(this.gatewayTap.fd);
       deleteTapDevice(this.gatewayTap.name);
       this.gatewayTap = null;

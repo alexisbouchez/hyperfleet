@@ -36,6 +36,9 @@ export interface MachinesTable {
   tap_ip: string | null;
   guest_ip: string | null;
   guest_mac: string | null;
+  // OCI image fields
+  image_ref: string | null;
+  image_digest: string | null;
   // Common fields
   pid: number | null;
   config_json: string;

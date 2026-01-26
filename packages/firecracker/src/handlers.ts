@@ -4,6 +4,7 @@
  */
 
 import type { Machine } from "./machine";
+import { getImageService } from "@hyperfleet/oci";
 
 export type Handler = (machine: Machine) => Promise<void>;
 
@@ -36,6 +37,44 @@ export class HandlerList {
 
   has(name: string): boolean {
     return this.handlers.has(name);
+  }
+
+  /**
+   * Insert a handler before another handler
+   */
+  insertBefore(beforeName: string, name: string, handler: Handler): this {
+    if (this.handlers.has(name)) {
+      this.order = this.order.filter((n) => n !== name);
+    }
+    this.handlers.set(name, handler);
+
+    const index = this.order.indexOf(beforeName);
+    if (index === -1) {
+      // If before handler not found, append at end
+      this.order.push(name);
+    } else {
+      this.order.splice(index, 0, name);
+    }
+    return this;
+  }
+
+  /**
+   * Insert a handler after another handler
+   */
+  insertAfter(afterName: string, name: string, handler: Handler): this {
+    if (this.handlers.has(name)) {
+      this.order = this.order.filter((n) => n !== name);
+    }
+    this.handlers.set(name, handler);
+
+    const index = this.order.indexOf(afterName);
+    if (index === -1) {
+      // If after handler not found, append at end
+      this.order.push(name);
+    } else {
+      this.order.splice(index + 1, 0, name);
+    }
+    return this;
   }
 
   clear(): this {
@@ -139,6 +178,45 @@ export const AttachDrivesHandler: Handler = async (machine) => {
   }
 };
 
+/**
+ * Handler to resolve OCI images to ext4 rootfs
+ * Should run before AttachDrivesHandler
+ */
+export const ResolveImageHandler: Handler = async (machine) => {
+  const { imageRef, imageSizeMib, registryAuth } = machine.config;
+
+  if (!imageRef) {
+    return; // No image to resolve, skip
+  }
+
+  const imageService = getImageService();
+  const result = await imageService.resolveImage(imageRef, {
+    sizeMib: imageSizeMib,
+    auth: registryAuth,
+  });
+
+  if (result.isErr()) {
+    throw new Error(`Failed to resolve image ${imageRef}: ${result.error.message}`);
+  }
+
+  const converted = result.unwrap();
+
+  // Update the root drive with the converted image path
+  if (!machine.config.drives || machine.config.drives.length === 0) {
+    machine.config.drives = [
+      {
+        drive_id: "rootfs",
+        path_on_host: converted.rootfsPath,
+        is_root_device: true,
+        is_read_only: false,
+      },
+    ];
+  } else {
+    // Update the first drive (root drive) with the converted image
+    machine.config.drives[0].path_on_host = converted.rootfsPath;
+  }
+};
+
 export const CreateNetworkInterfacesHandler: Handler = async (machine) => {
   const interfaces = machine.config.networkInterfaces || [];
   for (const iface of interfaces) {
@@ -191,6 +269,7 @@ export function createDefaultHandlers(): Handlers {
     .append("BootstrapLogging", BootstrapLoggingHandler)
     .append("CreateMachine", CreateMachineHandler)
     .append("CreateBootSource", CreateBootSourceHandler)
+    .append("ResolveImage", ResolveImageHandler)
     .append("AttachDrives", AttachDrivesHandler)
     .append("CreateNetworkInterfaces", CreateNetworkInterfacesHandler)
     .append("AddVsock", AddVsockHandler)

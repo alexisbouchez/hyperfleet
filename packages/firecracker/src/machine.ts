@@ -24,6 +24,14 @@ import { Handlers, createDefaultHandlers } from "./handlers";
 import type { JailerConfig } from "./jailer";
 import { buildJailerArgs, getJailerChrootPath } from "./jailer";
 
+/**
+ * Registry authentication credentials for OCI images
+ */
+export interface RegistryAuth {
+  username: string;
+  password: string;
+}
+
 export interface MachineConfig {
   // Socket path for Firecracker API
   socketPath: string;
@@ -42,6 +50,14 @@ export interface MachineConfig {
 
   // Drives
   drives?: Drive[];
+
+  // OCI Image support
+  /** OCI image reference (e.g., "alpine:latest") */
+  imageRef?: string;
+  /** Size of generated rootfs in MiB (default: 1024) */
+  imageSizeMib?: number;
+  /** Registry authentication for private images */
+  registryAuth?: RegistryAuth;
 
   // Network
   networkInterfaces?: NetworkInterface[];
@@ -157,7 +173,7 @@ export class Machine implements Runtime {
     await this.waitForSocket();
   }
 
-  private async waitForSocket(timeoutMs = 5000): Promise<void> {
+  private async waitForSocket(timeoutMs = 15000): Promise<void> {
     const start = Date.now();
     const socketPath = this.config.jailer
       ? `${getJailerChrootPath(this.config.jailer)}/${this.config.socketPath}`
@@ -165,16 +181,13 @@ export class Machine implements Runtime {
 
     while (Date.now() - start < timeoutMs) {
       try {
-        const file = Bun.file(socketPath);
-        if (await file.exists()) {
-          // Try to connect
-          const result = await this.client.describeInstance();
-          if (result.isOk()) return;
-        }
+        // Try to connect directly - Bun.file().exists() doesn't work for sockets
+        const result = await this.client.describeInstance();
+        if (result.isOk()) return;
       } catch {
         // Socket not ready yet
       }
-      await Bun.sleep(50);
+      await Bun.sleep(100);
     }
 
     throw new Error(`Timeout waiting for Firecracker socket at ${socketPath}`);

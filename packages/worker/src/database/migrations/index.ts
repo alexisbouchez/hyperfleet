@@ -3,6 +3,7 @@ import * as migration001 from "./001_create_machines";
 import * as migration002 from "./002_add_rootfs_and_network";
 import * as migration003 from "./003_add_runtime_type";
 import * as migration004 from "./004_create_api_keys";
+import * as migration005 from "./005_add_image_fields";
 
 /**
  * Custom migration provider that bundles migrations inline
@@ -15,6 +16,7 @@ class InlineMigrationProvider implements MigrationProvider {
       "002_add_rootfs_and_network": migration002,
       "003_add_runtime_type": migration003,
       "004_create_api_keys": migration004,
+      "005_add_image_fields": migration005,
     };
   }
 }

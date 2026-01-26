@@ -34,6 +34,22 @@ function getNetManager(): NetworkManager {
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 30;
 const generateMachineId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
 
+// Default machine configuration from environment variables
+const DEFAULT_SOCKET_DIR = process.env.HYPERFLEET_SOCKET_DIR ?? "/tmp";
+const DEFAULT_KERNEL_IMAGE_PATH = process.env.HYPERFLEET_KERNEL_IMAGE_PATH ?? "assets/vmlinux";
+const DEFAULT_KERNEL_ARGS = process.env.HYPERFLEET_KERNEL_ARGS ?? "console=ttyS0 reboot=k panic=1 pci=off init=/init";
+const DEFAULT_ROOTFS_PATH = process.env.HYPERFLEET_ROOTFS_PATH ?? "assets/alpine-rootfs.ext4";
+
+/**
+ * Convert a path to absolute if it's relative
+ */
+function toAbsolutePath(path: string): string {
+  if (path.startsWith("/")) {
+    return path;
+  }
+  return `${process.cwd()}/${path}`;
+}
+
 type MachineConfig = {
   vsock?: {
     uds_path?: string;
@@ -72,7 +88,25 @@ const isExecResponse = (value: unknown): value is ExecResponse => {
   );
 };
 
-const execViaVsock = (
+// Init response format: { success: boolean, data?: {...}, error?: string }
+interface InitResponse {
+  success: boolean;
+  data?: {
+    exit_code: number;
+    stdout: string;
+    stderr: string;
+  };
+  error?: string;
+}
+
+// Vsock port used by the init system
+const VSOCK_GUEST_PORT = 52;
+const VSOCK_RETRY_ATTEMPTS = 3;
+const VSOCK_RETRY_DELAY_MS = 500;
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const execViaVsockOnce = (
   udsPath: string,
   payload: { cmd: string[]; timeout: number },
   timeoutMs: number
@@ -81,6 +115,7 @@ const execViaVsock = (
     const socket = net.createConnection({ path: udsPath });
     let settled = false;
     let buffer = "";
+    let connected = false; // Track if we've completed the CONNECT handshake
 
     const finish = (err?: VsockError, data?: string) => {
       if (settled) return;
@@ -96,17 +131,22 @@ const execViaVsock = (
         resolve(Result.err(new VsockError({ message: "Empty response from vsock" })));
         return;
       }
-      const parseResult = Result.try(() => JSON.parse(data));
+      const parseResult = Result.try(() => JSON.parse(data) as InitResponse);
       if (parseResult.isErr()) {
         resolve(Result.err(new VsockError({ message: "Invalid JSON response from vsock" })));
         return;
       }
       const parsed = parseResult.unwrap();
-      if (!isExecResponse(parsed)) {
+      // Handle init's response format: { success: boolean, data: { exit_code, stdout, stderr } }
+      if (!parsed.success) {
+        resolve(Result.err(new VsockError({ message: parsed.error ?? "Command failed" })));
+        return;
+      }
+      if (!parsed.data || !isExecResponse(parsed.data)) {
         resolve(Result.err(new VsockError({ message: "Invalid response format from vsock" })));
         return;
       }
-      resolve(Result.ok(parsed));
+      resolve(Result.ok(parsed.data));
     };
 
     const timer = setTimeout(() => {
@@ -117,11 +157,35 @@ const execViaVsock = (
     socket.setEncoding("utf8");
 
     socket.on("connect", () => {
-      socket.end(`${JSON.stringify(payload)}\n`);
+      // Firecracker vsock protocol: send CONNECT <port>\n first
+      socket.write(`CONNECT ${VSOCK_GUEST_PORT}\n`);
     });
 
     socket.on("data", (chunk) => {
       buffer += chunk;
+
+      // If we haven't completed the CONNECT handshake yet
+      if (!connected) {
+        const newlineIndex = buffer.indexOf("\n");
+        if (newlineIndex !== -1) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+
+          if (line.startsWith("OK ")) {
+            // Connection established, now send the actual request after a small delay
+            connected = true;
+            const request = { operation: "exec", ...payload };
+            setTimeout(() => {
+              socket.write(`${JSON.stringify(request)}\n`);
+            }, 50);
+          } else {
+            finish(new VsockError({ message: `Vsock connection failed: ${line}` }));
+          }
+        }
+        return;
+      }
+
+      // After connection is established, look for the response
       const newlineIndex = buffer.indexOf("\n");
       if (newlineIndex !== -1) {
         const line = buffer.slice(0, newlineIndex).trim();
@@ -142,6 +206,39 @@ const execViaVsock = (
       finish(new VsockError({ message: `Vsock connection error: ${err.message}` }));
     });
   });
+
+/**
+ * Execute command via vsock with retry logic
+ * Retries help when the guest init hasn't started listening yet
+ */
+const execViaVsock = async (
+  udsPath: string,
+  payload: { cmd: string[]; timeout: number },
+  timeoutMs: number
+): Promise<Result<ExecResponse, VsockError>> => {
+  let lastError: VsockError | null = null;
+
+  for (let attempt = 1; attempt <= VSOCK_RETRY_ATTEMPTS; attempt++) {
+    const result = await execViaVsockOnce(udsPath, payload, timeoutMs);
+
+    if (result.isOk()) {
+      return result;
+    }
+
+    lastError = result.error;
+    // Only retry on connection errors (like empty response when init isn't ready)
+    if (!lastError.message.includes("Empty response") &&
+        !lastError.message.includes("connection")) {
+      return result; // Don't retry on other errors
+    }
+
+    if (attempt < VSOCK_RETRY_ATTEMPTS) {
+      await sleep(VSOCK_RETRY_DELAY_MS);
+    }
+  }
+
+  return Result.err(lastError!);
+};
 
 /**
  * Machine service for business logic
@@ -178,6 +275,8 @@ export class MachineService {
       kernel_image_path: machine.kernel_image_path,
       kernel_args: machine.kernel_args,
       rootfs_path: machine.rootfs_path,
+      image_ref: machine.image_ref,
+      image_digest: machine.image_digest,
       network,
       exposed_ports: exposedPorts,
       pid: machine.pid,
@@ -241,10 +340,15 @@ export class MachineService {
   async create(body: CreateMachineBody): Promise<Result<MachineResponse, HyperfleetError>> {
     const id = generateMachineId();
 
-    // Validate kernel and rootfs paths
+    // Use paths from environment variables (converted to absolute)
+    const inputKernelPath = toAbsolutePath(DEFAULT_KERNEL_IMAGE_PATH);
+    // Only use default rootfs if no image is specified
+    const inputRootfsPath = body.image ? undefined : toAbsolutePath(DEFAULT_ROOTFS_PATH);
+
+    // Validate kernel path (rootfs is optional when using an image)
     const validationResult = await validateMachinePaths(
-      body.kernel_image_path,
-      body.rootfs_path
+      inputKernelPath,
+      inputRootfsPath
     );
 
     if (validationResult.isErr()) {
@@ -252,13 +356,17 @@ export class MachineService {
     }
 
     const { kernelPath, rootfsPath } = validationResult.unwrap();
-    const socketPath = `/tmp/firecracker-${id}.sock`;
+    const socketPath = `${DEFAULT_SOCKET_DIR}/firecracker-${id}.sock`;
 
-    // Auto-allocate network if not specified and we're on Linux
+    // Auto-allocate network if enabled or not specified and we're on Linux
     let networkConfig: NetworkConfig | undefined = body.network;
     let vmNetwork: VMNetworkConfig | undefined;
 
-    if (!networkConfig && process.platform === "linux") {
+    // Check if we should auto-allocate: either network.enable=true or no network config at all
+    const shouldAutoAllocate = process.platform === "linux" &&
+      (!networkConfig || (networkConfig.enable && !networkConfig.tap_device));
+
+    if (shouldAutoAllocate) {
       const netManager = getNetManager();
       const allocResult = await netManager.allocateNetwork(id);
       if (allocResult.isOk()) {
@@ -283,7 +391,7 @@ export class MachineService {
     }
 
     // Build kernel args with network configuration if available
-    let kernelArgs = body.kernel_args ?? "console=ttyS0 reboot=k panic=1 pci=off";
+    let kernelArgs = DEFAULT_KERNEL_ARGS;
     if (vmNetwork?.kernelArgs) {
       kernelArgs = `${kernelArgs} ${vmNetwork.kernelArgs}`;
     }
@@ -293,14 +401,41 @@ export class MachineService {
       return Result.err(exposedPortsResult.error);
     }
 
+    // Build drives array for non-OCI case (OCI images use ResolveImageHandler)
+    const drives = rootfsPath
+      ? [
+          {
+            drive_id: "rootfs",
+            path_on_host: rootfsPath,
+            is_root_device: true,
+            is_read_only: false,
+          },
+        ]
+      : undefined;
+
+    // Vsock configuration for guest communication
+    const vsockUdsPath = `${DEFAULT_SOCKET_DIR}/hyperfleet-${id}.vsock`;
+    const vsock = {
+      guest_cid: 3,
+      uds_path: vsockUdsPath,
+    };
+
+    // Build machine config with OCI image support
     const config = {
       socketPath,
       kernelImagePath: kernelPath,
       kernelArgs,
-      rootfsPath: rootfsPath,
       vcpuCount: body.vcpu_count,
       memSizeMib: body.mem_size_mib,
       exposedPorts: exposedPortsResult.unwrap(),
+      // Drives (for non-OCI case, OCI images use ResolveImageHandler)
+      drives,
+      // OCI image configuration (will be resolved by ResolveImageHandler)
+      imageRef: body.image,
+      imageSizeMib: body.image_size_mib,
+      registryAuth: body.registry_auth,
+      // Vsock for guest communication
+      vsock,
       // Add network interfaces if configured
       networkInterfaces: networkConfig?.tap_device
         ? [
@@ -330,6 +465,8 @@ export class MachineService {
         tap_ip: networkConfig?.tap_ip ?? null,
         guest_ip: networkConfig?.guest_ip ?? null,
         guest_mac: networkConfig?.guest_mac ?? null,
+        image_ref: body.image ?? null,
+        image_digest: null, // Will be populated after start() resolves the image
         config_json: JSON.stringify(config),
       })
       .execute();

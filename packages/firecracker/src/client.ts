@@ -115,13 +115,13 @@ export class FirecrackerClient {
       // Apply timeout to the fetch request
       const timeoutResult = await withTimeout(
         (async () => {
-          const url = `unix://${this.socketPath}:${path}`;
-
-          const response = await fetch(url, {
+          const response = await fetch(`http://localhost${path}`, {
             method,
             headers: body ? { "Content-Type": "application/json" } : undefined,
             body: body ? JSON.stringify(body) : undefined,
-          });
+            // Bun uses the unix option for Unix socket connections
+            unix: this.socketPath,
+          } as RequestInit);
 
           if (!response.ok) {
             const errorBody = await response.text();

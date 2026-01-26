@@ -17,7 +17,7 @@ export type { FirecrackerClientConfig } from "./client";
 
 // Machine
 export { Machine, createMachineFromSnapshot, withClient, withHandlers } from "./machine";
-export type { MachineConfig, MachineOpt } from "./machine";
+export type { MachineConfig, MachineOpt, RegistryAuth } from "./machine";
 
 // Drives
 export {
@@ -63,6 +63,7 @@ export {
   BootstrapLoggingHandler,
   CreateMachineHandler,
   CreateBootSourceHandler,
+  ResolveImageHandler,
   AttachDrivesHandler,
   CreateNetworkInterfacesHandler,
   AddVsockHandler,

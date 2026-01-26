@@ -16,10 +16,16 @@ const machineStatusEnum = t.Union([
 ]);
 
 const networkConfig = t.Object({
+  enable: t.Optional(t.Boolean()),
   tap_device: t.Optional(t.String()),
   tap_ip: t.Optional(t.String()),
   guest_ip: t.Optional(t.String()),
   guest_mac: t.Optional(t.String()),
+});
+
+const registryAuth = t.Object({
+  username: t.String(),
+  password: t.String(),
 });
 
 const machineResponse = t.Object({
@@ -32,6 +38,8 @@ const machineResponse = t.Object({
   kernel_image_path: t.String(),
   kernel_args: t.Nullable(t.String()),
   rootfs_path: t.Nullable(t.String()),
+  image_ref: t.Nullable(t.String()),
+  image_digest: t.Nullable(t.String()),
   network: t.Nullable(networkConfig),
   exposed_ports: t.Optional(t.Array(t.Number({ minimum: 1, maximum: 65535 }))),
   pid: t.Nullable(t.Number()),
@@ -135,10 +143,11 @@ export const machineRoutes = (disableAuth: boolean) =>
           name: t.String({ minLength: 1, description: "Machine name" }),
           vcpu_count: t.Number({ minimum: 1, description: "Number of vCPUs" }),
           mem_size_mib: t.Number({ minimum: 4, description: "Memory in MiB" }),
-          kernel_image_path: t.String({ description: "Path to kernel image" }),
-          kernel_args: t.Optional(t.String({ description: "Kernel boot arguments" })),
-          rootfs_path: t.Optional(t.String({ description: "Path to root filesystem image" })),
+          image: t.Optional(t.String({ description: "OCI image reference (e.g., 'alpine:latest')" })),
+          image_size_mib: t.Optional(t.Number({ minimum: 64, description: "Size of generated rootfs in MiB (default: 1024)" })),
+          registry_auth: t.Optional(registryAuth),
           network: t.Optional(t.Object({
+            enable: t.Optional(t.Boolean({ description: "Enable automatic network allocation" })),
             tap_device: t.Optional(t.String({ description: "TAP device name" })),
             tap_ip: t.Optional(t.String({ description: "TAP device IP address" })),
             guest_ip: t.Optional(t.String({ description: "Guest VM IP address" })),

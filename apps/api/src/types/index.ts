@@ -4,10 +4,20 @@ import type { MachineStatus } from "@hyperfleet/worker/database";
  * Network configuration for a machine
  */
 export interface NetworkConfig {
+  /** Enable automatic network allocation */
+  enable?: boolean;
   tap_device?: string;
   tap_ip?: string;
   guest_ip?: string;
   guest_mac?: string;
+}
+
+/**
+ * Registry authentication for private OCI images
+ */
+export interface RegistryAuth {
+  username: string;
+  password: string;
 }
 
 /**
@@ -17,9 +27,14 @@ export interface CreateMachineBody {
   name: string;
   vcpu_count: number;
   mem_size_mib: number;
-  kernel_image_path: string;
-  kernel_args?: string;
-  rootfs_path?: string;
+
+  /** OCI image reference (e.g., "alpine:latest") */
+  image?: string;
+  /** Size of the generated rootfs in MiB (default: 1024) */
+  image_size_mib?: number;
+  /** Registry authentication for private images */
+  registry_auth?: RegistryAuth;
+
   network?: NetworkConfig;
   exposed_ports?: number[];
 }
@@ -44,6 +59,10 @@ export interface MachineResponse {
   kernel_image_path: string;
   kernel_args: string | null;
   rootfs_path: string | null;
+  /** OCI image reference if booted from image */
+  image_ref: string | null;
+  /** OCI image digest for cache validation */
+  image_digest: string | null;
   network: NetworkConfig | null;
   exposed_ports?: number[];
   pid: number | null;

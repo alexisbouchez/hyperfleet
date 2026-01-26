@@ -94,6 +94,18 @@ export {
   type NATConfig,
 } from "./nat";
 
+// Bridge management
+export {
+  createBridge,
+  deleteBridge,
+  addInterfaceToBridge,
+  removeInterfaceFromBridge,
+  addIPToBridge,
+  deleteIPFromBridge,
+  bridgeExists,
+  BridgeError,
+} from "./bridge";
+
 // High-level Network Manager
 export {
   NetworkManager,

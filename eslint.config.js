@@ -11,6 +11,9 @@ module.exports = [
       "**/coverage/**",
       "**/.next/**",
       "**/out/**",
+      "**/apps/docs/**",
+      "**/docs-build/**",
+      "**/docs-temp/**",
     ],
   },
   js.configs.recommended,
@@ -36,6 +39,7 @@ module.exports = [
         ...globals.browser,
         ...(globals.bun ?? {}),
         Bun: "readonly",
+        RequestInit: "readonly",
       },
     },
     plugins: {
@@ -50,6 +54,8 @@ module.exports = [
           varsIgnorePattern: "^_",
         },
       ],
+      "no-redeclare": "off",
+      "no-control-regex": "off",
     },
   },
 ];

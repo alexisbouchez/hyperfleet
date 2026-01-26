@@ -1,4 +1,3 @@
-/* eslint-disable no-redeclare */
 import { TaggedError } from "better-result";
 
 // Firecracker API errors

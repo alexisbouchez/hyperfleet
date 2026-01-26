@@ -4,6 +4,7 @@ import { parseProxyPort, startReverseProxy } from "./proxy";
 
 const DB_PATH = process.env.DATABASE_PATH ?? "./hyperfleet.db";
 const PORT = process.env.PORT ?? 3000;
+const DISABLE_AUTH = process.env.DISABLE_AUTH === "true";
 const PROXY_PORT = parseProxyPort(process.env.PROXY_PORT);
 const PROXY_PREFIX = process.env.PROXY_PREFIX ?? "/proxy";
 const PROXY_HOST_SUFFIX = process.env.PROXY_HOST_SUFFIX;
@@ -34,7 +35,7 @@ async function main() {
   await runMigrations(db);
 
   // Create and start the app
-  const app = createApp({ db });
+  const app = createApp({ db, disableAuth: DISABLE_AUTH });
 
   app.listen(PORT, () => {
     console.log(`Hyperfleet API running at http://localhost:${PORT}`);

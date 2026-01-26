@@ -3,8 +3,9 @@ import { swagger } from "@elysiajs/swagger";
 import type { Kysely, Database } from "@hyperfleet/worker/database";
 import { createLogger, generateCorrelationId, type Logger } from "@hyperfleet/logger";
 import { MachineService } from "./services/machines";
+import { FileService } from "./services/files";
 import { AuthService } from "./services/auth";
-import { machineRoutes } from "./routes";
+import { machineRoutes, fileRoutes } from "./routes";
 
 // Export AuthService for creating API keys
 export { AuthService } from "./services/auth";
@@ -33,6 +34,10 @@ export function createApp(config: AppConfig) {
               name: "machines",
               description: "Machine lifecycle operations",
             },
+            {
+              name: "files",
+              description: "File transfer operations",
+            },
           ],
           components: {
             securitySchemes: {
@@ -60,7 +65,8 @@ export function createApp(config: AppConfig) {
         method: request.method,
       });
       const machineService = new MachineService(config.db, logger);
-      return { correlationId, logger, machineService, authService };
+      const fileService = new FileService(config.db, logger);
+      return { correlationId, logger, machineService, fileService, authService };
     })
 
     // Health check (public)
@@ -68,6 +74,9 @@ export function createApp(config: AppConfig) {
 
     // Machine routes
     .use(machineRoutes(config.disableAuth ?? false))
+
+    // File routes
+    .use(fileRoutes(config.disableAuth ?? false))
 
     // Global error handler
     .onError(({ code, error, set, logger }) => {

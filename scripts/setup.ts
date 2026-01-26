@@ -51,9 +51,11 @@ async function setupLima(): Promise<void> {
   }
   console.log("Lima is installed");
 
-  // Check if default VM exists
+  // Check if default VM exists (limactl outputs newline-delimited JSON)
   const vmsOutput = await $`limactl list --format json`.text();
-  const vms = vmsOutput.trim() ? JSON.parse(vmsOutput) : [];
+  const vms = vmsOutput.trim()
+    ? vmsOutput.trim().split("\n").map((line) => JSON.parse(line))
+    : [];
   const defaultVm = vms.find((vm: { name: string }) => vm.name === "default");
 
   if (!defaultVm) {

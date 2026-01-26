@@ -142,33 +142,42 @@ describe("Migrations", () => {
     it("rolls back the last migration", async () => {
       await runMigrations(db);
 
-      // Verify api_keys exists
+      // Verify api_keys exists (will be used to check rollback works)
       const beforeRollback = await db
         .selectFrom("api_keys")
         .selectAll()
         .execute();
       expect(Array.isArray(beforeRollback)).toBe(true);
 
-      // Rollback should remove api_keys table
+      // Rollback should remove image_fields (migration 005)
       await rollbackMigration(db);
 
-      // After rollback, api_keys should not exist
-      // We can't query it directly, so check via sqlite_master
+      // After rolling back 005, api_keys should still exist (it's migration 004)
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master WHERE type='table' AND name='api_keys'
       `.execute(db);
 
-      expect(tables.rows.length).toBe(0);
+      expect(tables.rows.length).toBe(1);
+
+      // Now rollback again to remove api_keys
+      await rollbackMigration(db);
+
+      const tablesAfter = await sql<{ name: string }>`
+        SELECT name FROM sqlite_master WHERE type='table' AND name='api_keys'
+      `.execute(db);
+
+      expect(tablesAfter.rows.length).toBe(0);
     });
 
     it("can rollback multiple times", async () => {
       await runMigrations(db);
 
       // Rollback all migrations one by one
-      await rollbackMigration(db); // Remove api_keys
-      await rollbackMigration(db); // Remove runtime_type column changes
-      await rollbackMigration(db); // Remove rootfs and network columns
-      await rollbackMigration(db); // Remove machines table
+      await rollbackMigration(db); // Remove image_fields (005)
+      await rollbackMigration(db); // Remove api_keys (004)
+      await rollbackMigration(db); // Remove runtime_type column changes (003)
+      await rollbackMigration(db); // Remove rootfs and network columns (002)
+      await rollbackMigration(db); // Remove machines table (001)
 
       // After all rollbacks, machines table should not exist
       const tables = await sql<{ name: string }>`
