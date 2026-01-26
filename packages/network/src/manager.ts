@@ -30,8 +30,6 @@ import {
   TapError,
 } from "./tap";
 import {
-  addIPAddress,
-  deleteIPAddress,
   setInterfaceUp,
   NetlinkError,
 } from "./netlink";
