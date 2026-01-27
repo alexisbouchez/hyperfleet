@@ -44,7 +44,7 @@ The API will be available at `http://localhost:3000` with Swagger docs at `/docs
 
 ## API Usage
 
-### Create a VM from OCI Image
+### Create a VM from OCI Image (minimal payload)
 
 ```bash
 # Create a VM from an Alpine image
@@ -58,6 +58,8 @@ curl -X POST http://localhost:3000/machines \
     "image": "alpine:latest"
   }'
 ```
+
+The create payload is intentionally small (name, CPU, RAM, image). The API also supports optional fields like `image_size_mib`, `registry_auth`, `network`, and `exposed_ports` if you need them.
 
 ### Create a VM with Custom Rootfs
 
@@ -79,6 +81,10 @@ The kernel and rootfs paths are configured via environment variables.
 ```bash
 # Start a machine
 curl -X POST http://localhost:3000/machines/{id}/start \
+  -H "Authorization: Bearer $API_KEY"
+
+# Wait for a machine to reach running (default/max timeout: 30s)
+curl "http://localhost:3000/machines/{id}/wait?status=running&timeout=30" \
   -H "Authorization: Bearer $API_KEY"
 
 # Stop a machine
@@ -106,6 +112,23 @@ curl "http://localhost:3000/machines?status=running" \
   -H "Authorization: Bearer $API_KEY"
 ```
 
+Example response (trimmed for clarity):
+
+```json
+[
+  {
+    "id": "vm_01HXYZ...",
+    "name": "my-alpine-vm",
+    "status": "running",
+    "vcpu_count": 1,
+    "mem_size_mib": 512,
+    "image_ref": "alpine:latest"
+  }
+]
+```
+
+The full response includes additional fields (kernel/rootfs paths, network, timestamps, etc.).
+
 ### Execute Commands
 
 ```bash
@@ -113,10 +136,12 @@ curl -X POST http://localhost:3000/machines/{id}/exec \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $API_KEY" \
   -d '{
-    "cmd": ["ls", "-la", "/"],
+    "command": ["ls", "-la", "/"],
     "timeout": 30
   }'
 ```
+
+`command` is preferred; `cmd` is still accepted for backward compatibility.
 
 ### File Transfer
 
@@ -146,7 +171,7 @@ curl -X DELETE "http://localhost:3000/machines/{id}/files?path=/tmp/hello.txt" \
 ## SDK Usage
 
 ```typescript
-import { Machine, DrivesBuilder } from "@hyperfleet/firecracker";
+import { Machine } from "@hyperfleet/firecracker";
 
 // Create a machine with OCI image
 const machine = new Machine({
@@ -158,16 +183,20 @@ const machine = new Machine({
   // OCI image will be resolved at start time
   imageRef: "alpine:latest",
   imageSizeMib: 1024,
+  // Required for exec(): host UDS for vsock + guest agent in the image
+  vsock: { guest_cid: 3, uds_path: "/tmp/hyperfleet.vsock" },
 });
 
-await machine.start();
+const startRes = await machine.start();
+startRes.unwrap();
 
 // Execute a command
-const result = await machine.exec(["uname", "-a"]);
-console.log(result.stdout);
+const execRes = (await machine.exec(["uname", "-a"])).unwrap();
+console.log(execRes.stdout);
 
 // Graceful shutdown
-await machine.shutdown();
+const shutdownRes = await machine.shutdown();
+shutdownRes.unwrap();
 ```
 
 ## Architecture

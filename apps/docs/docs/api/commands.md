@@ -24,7 +24,7 @@ POST /machines/{id}/exec
 
 ```json
 {
-  "cmd": ["ls", "-la", "/"],
+  "command": ["ls", "-la", "/"],
   "timeout": 30
 }
 ```
@@ -33,8 +33,10 @@ POST /machines/{id}/exec
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `cmd` | string[] | Yes | Command and arguments as array |
+| `command` | string[] | Yes | Command and arguments as array (alias: `cmd`) |
 | `timeout` | integer | No | Timeout in seconds (default: 30) |
+
+`command` is preferred. `cmd` is still accepted for backward compatibility.
 
 ### Response
 
@@ -65,7 +67,7 @@ curl -X POST http://localhost:3000/machines/abc123/exec \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer hf_your_api_key" \
   -d '{
-    "cmd": ["uname", "-a"]
+    "command": ["uname", "-a"]
   }'
 ```
 
@@ -86,7 +88,7 @@ curl -X POST http://localhost:3000/machines/abc123/exec \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer hf_your_api_key" \
   -d '{
-    "cmd": ["cat", "/etc/os-release"]
+    "command": ["cat", "/etc/os-release"]
   }'
 ```
 
@@ -97,7 +99,7 @@ curl -X POST http://localhost:3000/machines/abc123/exec \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer hf_your_api_key" \
   -d '{
-    "cmd": ["sleep", "5"],
+    "command": ["sleep", "5"],
     "timeout": 10
   }'
 ```
@@ -111,7 +113,7 @@ curl -X POST http://localhost:3000/machines/abc123/exec \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer hf_your_api_key" \
   -d '{
-    "cmd": ["sh", "-c", "echo $HOME && ls -la | head -5"]
+    "command": ["sh", "-c", "echo $HOME && ls -la | head -5"]
   }'
 ```
 
@@ -122,7 +124,7 @@ curl -X POST http://localhost:3000/machines/abc123/exec \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer hf_your_api_key" \
   -d '{
-    "cmd": ["rc-service", "nginx", "status"]
+    "command": ["rc-service", "nginx", "status"]
   }'
 ```
 
@@ -133,7 +135,7 @@ curl -X POST http://localhost:3000/machines/abc123/exec \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer hf_your_api_key" \
   -d '{
-    "cmd": ["apk", "add", "--no-cache", "nginx"],
+    "command": ["apk", "add", "--no-cache", "nginx"],
     "timeout": 120
   }'
 ```
@@ -199,10 +201,10 @@ Always pass commands as arrays, not strings:
 
 ```json
 // Correct
-{"cmd": ["ls", "-la", "/home"]}
+{"command": ["ls", "-la", "/home"]}
 
 // Incorrect - won't work
-{"cmd": "ls -la /home"}
+{"command": "ls -la /home"}
 ```
 
 ### Handle Timeouts
@@ -220,7 +222,7 @@ Always check the `exit_code` in responses:
 ```javascript
 const response = await fetch("/machines/abc123/exec", {
   method: "POST",
-  body: JSON.stringify({ cmd: ["some-command"] }),
+  body: JSON.stringify({ command: ["some-command"] }),
 });
 
 const result = await response.json();
@@ -236,7 +238,7 @@ When using `sh -c`, be careful with special characters:
 
 ```json
 {
-  "cmd": ["sh", "-c", "echo 'Hello, World!'"]
+  "command": ["sh", "-c", "echo 'Hello, World!'"]
 }
 ```
 

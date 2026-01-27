@@ -95,6 +95,7 @@ Error responses include an error object:
 | `POST` | `/machines` | Create a new machine |
 | `GET` | `/machines` | List all machines |
 | `GET` | `/machines/{id}` | Get machine details |
+| `GET` | `/machines/{id}/wait` | Wait for machine to reach a status |
 | `DELETE` | `/machines/{id}` | Delete a machine |
 | `POST` | `/machines/{id}/start` | Start a machine |
 | `POST` | `/machines/{id}/stop` | Stop a machine |

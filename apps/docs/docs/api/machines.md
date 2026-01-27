@@ -240,6 +240,42 @@ curl -X POST \
 
 ---
 
+## Wait for Status
+
+Wait for a machine to reach a specific status.
+
+```http
+GET /machines/{id}/wait
+```
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Machine ID |
+
+### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `status` | string | Target status (e.g., `running`, `stopped`) |
+| `timeout` | integer | Timeout in seconds (default: 30, max: 30) |
+
+### Response
+
+**Status**: `200 OK`
+
+Returns the machine object once it reaches the target status.
+
+### Example
+
+```bash
+curl -H "Authorization: Bearer hf_your_api_key" \
+  "http://localhost:3000/machines/abc123xyz/wait?status=running&timeout=30"
+```
+
+---
+
 ## Stop Machine
 
 Gracefully stop a running machine.
@@ -314,6 +350,19 @@ curl -X POST \
 ```
 
 **Status**: `404 Not Found`
+
+### Wait Timeout
+
+```json
+{
+  "error": {
+    "code": "TIMEOUT",
+    "message": "Timed out waiting for machine abc123xyz to reach status running"
+  }
+}
+```
+
+**Status**: `504 Gateway Timeout`
 
 ### Invalid Machine State
 

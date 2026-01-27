@@ -8,6 +8,7 @@ import {
   ValidationError,
   VsockError,
   RuntimeError,
+  TimeoutError,
   type HyperfleetError,
 } from "@hyperfleet/errors";
 import { NetworkManager, type VMNetworkConfig } from "@hyperfleet/network";
@@ -32,6 +33,9 @@ function getNetManager(): NetworkManager {
 }
 
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 30;
+const DEFAULT_WAIT_TIMEOUT_SECONDS = 30;
+const MAX_WAIT_TIMEOUT_SECONDS = 30;
+const WAIT_POLL_INTERVAL_MS = 250;
 const generateMachineId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
 
 // Default machine configuration from environment variables
@@ -680,6 +684,11 @@ export class MachineService {
       return Result.err(new ValidationError({ message: "Machine must be running to execute commands" }));
     }
 
+    const cmd = body.command ?? body.cmd;
+    if (!cmd || cmd.length === 0) {
+      return Result.err(new ValidationError({ message: "command is required" }));
+    }
+
     const timeoutSeconds = Math.max(1, body.timeout ?? DEFAULT_EXEC_TIMEOUT_SECONDS);
     const timeoutMs = timeoutSeconds * 1000;
 
@@ -692,6 +701,48 @@ export class MachineService {
       return Result.err(new VsockError({ message: "Vsock not configured for this machine" }));
     }
 
-    return execViaVsock(udsPath, { cmd: body.cmd, timeout: timeoutSeconds }, timeoutMs);
+    return execViaVsock(udsPath, { cmd, timeout: timeoutSeconds }, timeoutMs);
+  }
+
+  /**
+   * Wait for a machine to reach a desired status
+   */
+  async waitForStatus(
+    id: string,
+    status: MachineStatus,
+    timeoutSeconds?: number
+  ): Promise<Result<MachineResponse, HyperfleetError>> {
+    const normalizedTimeout = Math.min(
+      Math.max(1, timeoutSeconds ?? DEFAULT_WAIT_TIMEOUT_SECONDS),
+      MAX_WAIT_TIMEOUT_SECONDS
+    );
+    const timeoutMs = normalizedTimeout * 1000;
+    const start = Date.now();
+
+    while (true) {
+      const machine = await this.db
+        .selectFrom("machines")
+        .selectAll()
+        .where("id", "=", id)
+        .executeTakeFirst();
+
+      if (!machine) {
+        return Result.err(new NotFoundError({ message: "Machine not found" }));
+      }
+
+      if (machine.status === status) {
+        return Result.ok(this.toResponse(machine));
+      }
+
+      if (Date.now() - start >= timeoutMs) {
+        return Result.err(
+          new TimeoutError({
+            message: `Timed out waiting for machine ${id} to reach status ${status}`,
+          })
+        );
+      }
+
+      await sleep(WAIT_POLL_INTERVAL_MS);
+    }
   }
 }

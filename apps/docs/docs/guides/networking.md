@@ -128,7 +128,7 @@ curl -X POST http://localhost:3000/machines/abc123/exec \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer hf_your_api_key" \
   -d '{
-    "cmd": ["ip", "addr", "show", "eth0"]
+    "command": ["ip", "addr", "show", "eth0"]
   }'
 ```
 
@@ -139,7 +139,7 @@ curl -X POST http://localhost:3000/machines/abc123/exec \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer hf_your_api_key" \
   -d '{
-    "cmd": ["ping", "-c", "3", "8.8.8.8"]
+    "command": ["ping", "-c", "3", "8.8.8.8"]
   }'
 ```
 
@@ -211,7 +211,7 @@ Configure DNS inside the VM:
 curl -X POST http://localhost:3000/machines/abc123/exec \
   -H "Content-Type: application/json" \
   -d '{
-    "cmd": ["sh", "-c", "echo nameserver 8.8.8.8 > /etc/resolv.conf"]
+    "command": ["sh", "-c", "echo nameserver 8.8.8.8 > /etc/resolv.conf"]
   }'
 ```
 

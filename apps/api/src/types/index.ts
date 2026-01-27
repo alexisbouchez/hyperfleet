@@ -82,7 +82,10 @@ export interface ErrorResponse {
  * Request body for executing a command
  */
 export interface ExecBody {
-  cmd: string[];
+  /** Command and arguments to execute (preferred field). */
+  command?: string[];
+  /** Deprecated alias for `command`. */
+  cmd?: string[];
   timeout?: number;
 }
 

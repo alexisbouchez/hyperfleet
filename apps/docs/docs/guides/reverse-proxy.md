@@ -124,7 +124,7 @@ curl -X POST http://localhost:3000/machines/abc123/exec \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer hf_your_api_key" \
   -d '{
-    "cmd": ["apk", "add", "--no-cache", "nginx"],
+    "command": ["apk", "add", "--no-cache", "nginx"],
     "timeout": 60
   }'
 
@@ -133,7 +133,7 @@ curl -X POST http://localhost:3000/machines/abc123/exec \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer hf_your_api_key" \
   -d '{
-    "cmd": ["sh", "-c", "echo \"<h1>Hello from Hyperfleet!</h1>\" > /var/www/localhost/htdocs/index.html"]
+    "command": ["sh", "-c", "echo \"<h1>Hello from Hyperfleet!</h1>\" > /var/www/localhost/htdocs/index.html"]
   }'
 
 # Start nginx
@@ -141,7 +141,7 @@ curl -X POST http://localhost:3000/machines/abc123/exec \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer hf_your_api_key" \
   -d '{
-    "cmd": ["nginx"]
+    "command": ["nginx"]
   }'
 ```
 

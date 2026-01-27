@@ -86,7 +86,7 @@ Run commands inside the running VM:
 curl -X POST http://localhost:3000/machines/abc123/exec \
   -H "Content-Type: application/json" \
   -d '{
-    "cmd": ["uname", "-a"],
+    "command": ["uname", "-a"],
     "timeout": 30
   }'
 ```

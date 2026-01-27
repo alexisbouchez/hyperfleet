@@ -203,6 +203,51 @@ export const machineRoutes = (disableAuth: boolean) =>
       }
     )
 
+    // GET /machines/:id/wait - Wait for a machine to reach a status
+    .get(
+      "/:id/wait",
+      async (ctx) => {
+        const { params, query, set, machineService, authService, logger, request } = ctx as typeof ctx & Context;
+
+        if (!disableAuth && !(await validateAuth(request, set, authService, logger))) {
+          return { error: "unauthorized", message: "Invalid or missing API key" };
+        }
+
+        const result = await machineService.waitForStatus(
+          params.id,
+          query.status as MachineStatus,
+          query.timeout
+        );
+        if (result.isErr()) {
+          set.status = getHttpStatus(result.error);
+          return { error: result.error._tag, message: result.error.message };
+        }
+        return result.unwrap();
+      },
+      {
+        params: t.Object({
+          id: t.String({ description: "Machine ID" }),
+        }),
+        query: t.Object({
+          status: machineStatusEnum,
+          timeout: t.Optional(
+            t.Number({ minimum: 1, maximum: 30, description: "Timeout in seconds (max: 30, default: 30)" })
+          ),
+        }),
+        response: {
+          200: machineResponse,
+          400: errorResponse,
+          401: errorResponse,
+          404: errorResponse,
+          504: errorResponse,
+        },
+        detail: {
+          summary: "Wait for machine status",
+          description: "Wait for a machine to reach a target status (default timeout: 30s, max: 30s)",
+        },
+      }
+    )
+
     // DELETE /machines/:id - Delete a machine
     .delete(
       "/:id",
@@ -365,7 +410,8 @@ export const machineRoutes = (disableAuth: boolean) =>
           id: t.String({ description: "Machine ID" }),
         }),
         body: t.Object({
-          cmd: t.Array(t.String(), { description: "Command and arguments to execute" }),
+          command: t.Optional(t.Array(t.String(), { description: "Command and arguments to execute" })),
+          cmd: t.Optional(t.Array(t.String(), { description: "Deprecated alias for command" })),
           timeout: t.Optional(t.Number({ minimum: 1, description: "Timeout in seconds" })),
         }),
         response: {
