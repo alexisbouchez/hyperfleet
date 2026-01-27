@@ -4,6 +4,11 @@ import { existsSync, mkdirSync } from "fs";
 
 const FIRECRACKER_VERSION = "v1.10.1";
 const ALPINE_VERSION = "3.21";
+const LIMA_INSTANCE =
+  process.env.HYPERFLEET_LIMA_INSTANCE || process.env.LIMA_INSTANCE || "default";
+
+// Ensure `lima` targets the same instance as `limactl` commands below.
+process.env.LIMA_INSTANCE = LIMA_INSTANCE;
 
 const ASSETS_DIR = join(import.meta.dir, "..", "assets");
 const KERNEL_PATH = join(ASSETS_DIR, "vmlinux");
@@ -51,23 +56,28 @@ async function setupLima(): Promise<void> {
   }
   console.log("Lima is installed");
 
-  // Check if default VM exists (limactl outputs newline-delimited JSON)
+  // Check if target VM exists (limactl outputs newline-delimited JSON)
   const vmsOutput = await $`limactl list --format json`.text();
   const vms = vmsOutput.trim()
     ? vmsOutput.trim().split("\n").map((line) => JSON.parse(line))
     : [];
-  const defaultVm = vms.find((vm: { name: string }) => vm.name === "default");
+  const targetVm = vms.find(
+    (vm: { name: string }) => vm.name === LIMA_INSTANCE,
+  );
 
-  if (!defaultVm) {
-    await run("Creating Lima VM with nested virtualization", async () => {
-      await $`limactl start --set '.nestedVirtualization=true' template://default`;
-    });
-  } else if (defaultVm.status !== "Running") {
-    await run("Starting Lima VM", async () => {
-      await $`limactl start default`;
+  if (!targetVm) {
+    await run(
+      `Creating Lima VM "${LIMA_INSTANCE}" with nested virtualization`,
+      async () => {
+        await $`limactl start --name ${LIMA_INSTANCE} --set '.nestedVirtualization=true' template://default`;
+      },
+    );
+  } else if (targetVm.status !== "Running") {
+    await run(`Starting Lima VM "${LIMA_INSTANCE}"`, async () => {
+      await $`limactl start ${LIMA_INSTANCE}`;
     });
   } else {
-    console.log("Lima VM is already running");
+    console.log(`Lima VM "${LIMA_INSTANCE}" is already running`);
   }
 
   // Configure KVM access
@@ -224,7 +234,7 @@ rm alpine-minirootfs.tar.gz
     await $`lima bash -c ${script}`;
 
     // Copy rootfs from Lima to host
-    await $`limactl copy default:/tmp/alpine-rootfs.ext4 ${ROOTFS_PATH}`;
+    await $`limactl copy ${LIMA_INSTANCE}:/tmp/alpine-rootfs.ext4 ${ROOTFS_PATH}`;
     await $`lima rm /tmp/alpine-rootfs.ext4`;
   });
 }
