@@ -3,10 +3,11 @@
  * Similar to firecracker-go-sdk's handler pattern
  */
 
+import { Result } from "better-result";
 import type { Machine } from "./machine";
 import { getImageService } from "@hyperfleet/oci";
 
-export type Handler = (machine: Machine) => Promise<void>;
+export type Handler = (machine: Machine) => Promise<Result<void, Error>>;
 
 export class HandlerList {
   private handlers: Map<string, Handler> = new Map();
@@ -83,13 +84,17 @@ export class HandlerList {
     return this;
   }
 
-  async run(machine: Machine): Promise<void> {
+  async run(machine: Machine): Promise<Result<void, Error>> {
     for (const name of this.order) {
       const handler = this.handlers.get(name);
       if (handler) {
-        await handler(machine);
+        const result = await handler(machine);
+        if (result.isErr()) {
+          return result;
+        }
       }
     }
+    return Result.ok(undefined);
   }
 
   list(): string[] {
@@ -107,16 +112,18 @@ export const ConfigValidationHandler: Handler = async (machine) => {
   const config = machine.config;
 
   if (!config.kernelImagePath) {
-    throw new Error("kernel image path is required");
+    return Result.err(new Error("kernel image path is required"));
   }
 
   if (config.vcpuCount < 1) {
-    throw new Error("vcpu count must be at least 1");
+    return Result.err(new Error("vcpu count must be at least 1"));
   }
 
   if (config.memSizeMib < 1) {
-    throw new Error("memory size must be at least 1 MiB");
+    return Result.err(new Error("memory size must be at least 1 MiB"));
   }
+
+  return Result.ok(undefined);
 };
 
 export const NetworkConfigValidationHandler: Handler = async (machine) => {
@@ -124,58 +131,68 @@ export const NetworkConfigValidationHandler: Handler = async (machine) => {
 
   for (const iface of networkInterfaces) {
     if (!iface.iface_id) {
-      throw new Error("network interface id is required");
+      return Result.err(new Error("network interface id is required"));
     }
     if (!iface.host_dev_name) {
-      throw new Error("host device name is required");
+      return Result.err(new Error("host device name is required"));
     }
   }
+
+  return Result.ok(undefined);
 };
 
 // Default initialization handlers
 export const CreateLogFilesHandler: Handler = async (machine) => {
   const { logPath } = machine.config;
   if (logPath) {
-    const file = Bun.file(logPath);
-    await Bun.write(file, "");
+    try {
+      const file = Bun.file(logPath);
+      await Bun.write(file, "");
+    } catch (err) {
+      return Result.err(err instanceof Error ? err : new Error(String(err)));
+    }
   }
+  return Result.ok(undefined);
 };
 
 export const BootstrapLoggingHandler: Handler = async (machine) => {
   const { logPath, logLevel } = machine.config;
   if (logPath) {
-    (await machine.client.putLogger({
+    return await machine.client.putLogger({
       log_path: logPath,
       level: logLevel || "Warning",
       show_level: true,
       show_log_origin: true,
-    })).unwrap();
+    });
   }
+  return Result.ok(undefined);
 };
 
 export const CreateMachineHandler: Handler = async (machine) => {
-  (await machine.client.putMachineConfiguration({
+  return await machine.client.putMachineConfiguration({
     vcpu_count: machine.config.vcpuCount,
     mem_size_mib: machine.config.memSizeMib,
     smt: machine.config.smt,
     cpu_template: machine.config.cpuTemplate,
     track_dirty_pages: machine.config.trackDirtyPages,
-  })).unwrap();
+  });
 };
 
 export const CreateBootSourceHandler: Handler = async (machine) => {
-  (await machine.client.putGuestBootSource({
+  return await machine.client.putGuestBootSource({
     kernel_image_path: machine.config.kernelImagePath,
     boot_args: machine.getKernelArgs(),
     initrd_path: machine.config.initrdPath,
-  })).unwrap();
+  });
 };
 
 export const AttachDrivesHandler: Handler = async (machine) => {
   const drives = machine.config.drives || [];
   for (const drive of drives) {
-    (await machine.client.putGuestDriveByID(drive)).unwrap();
+    const result = await machine.client.putGuestDriveByID(drive);
+    if (result.isErr()) return result;
   }
+  return Result.ok(undefined);
 };
 
 /**
@@ -186,7 +203,7 @@ export const ResolveImageHandler: Handler = async (machine) => {
   const { imageRef, imageSizeMib, registryAuth } = machine.config;
 
   if (!imageRef) {
-    return; // No image to resolve, skip
+    return Result.ok(undefined); // No image to resolve, skip
   }
 
   const imageService = getImageService();
@@ -196,7 +213,7 @@ export const ResolveImageHandler: Handler = async (machine) => {
   });
 
   if (result.isErr()) {
-    throw new Error(`Failed to resolve image ${imageRef}: ${result.error.message}`);
+    return Result.err(new Error(`Failed to resolve image ${imageRef}: ${result.error.message}`));
   }
 
   const converted = result.unwrap();
@@ -215,41 +232,50 @@ export const ResolveImageHandler: Handler = async (machine) => {
     // Update the first drive (root drive) with the converted image
     machine.config.drives[0].path_on_host = converted.rootfsPath;
   }
+
+  return Result.ok(undefined);
 };
 
 export const CreateNetworkInterfacesHandler: Handler = async (machine) => {
   const interfaces = machine.config.networkInterfaces || [];
   for (const iface of interfaces) {
-    (await machine.client.putGuestNetworkInterfaceByID(iface)).unwrap();
+    const result = await machine.client.putGuestNetworkInterfaceByID(iface);
+    if (result.isErr()) return result;
   }
+  return Result.ok(undefined);
 };
 
 export const AddVsockHandler: Handler = async (machine) => {
   const { vsock } = machine.config;
   if (vsock) {
-    (await machine.client.putGuestVsock(vsock)).unwrap();
+    return await machine.client.putGuestVsock(vsock);
   }
+  return Result.ok(undefined);
 };
 
 export const SetupBalloonHandler: Handler = async (machine) => {
   const { balloon } = machine.config;
   if (balloon) {
-    (await machine.client.putBalloon(balloon)).unwrap();
+    return await machine.client.putBalloon(balloon);
   }
+  return Result.ok(undefined);
 };
 
 export const ConfigMmdsHandler: Handler = async (machine) => {
   const { mmdsConfig, mmdsData } = machine.config;
   if (mmdsConfig) {
-    (await machine.client.putMmdsConfig(mmdsConfig)).unwrap();
+    const res = await machine.client.putMmdsConfig(mmdsConfig);
+    if (res.isErr()) return res;
+    
     if (mmdsData) {
-      (await machine.client.putMmds(mmdsData)).unwrap();
+      return await machine.client.putMmds(mmdsData);
     }
   }
+  return Result.ok(undefined);
 };
 
 export const StartVMMHandler: Handler = async (machine) => {
-  (await machine.client.createSyncAction("InstanceStart")).unwrap();
+  return await machine.client.createSyncAction("InstanceStart");
 };
 
 /**

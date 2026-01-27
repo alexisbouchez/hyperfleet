@@ -117,7 +117,7 @@ describe("Firecracker Integration Tests", () => {
       machinesToCleanup.push(machine);
 
       // Start the VMM process
-      await machine.startVMM();
+      (await machine.startVMM()).unwrap();
 
       // Client should be able to describe instance
       const result = await machine.client.describeInstance();
@@ -136,13 +136,13 @@ describe("Firecracker Integration Tests", () => {
       const machine = new Machine(config);
       machinesToCleanup.push(machine);
 
-      await machine.start();
+      (await machine.start()).unwrap();
 
       expect(machine.isRunning()).toBe(true);
       expect(machine.getPid()).not.toBeNull();
 
       // Verify instance state
-      const info = await machine.getInstanceInfo();
+      const info = (await machine.getInstanceInfo()).unwrap();
       expect(info.state).toBe("Running");
     });
 
@@ -153,10 +153,10 @@ describe("Firecracker Integration Tests", () => {
       const machine = new Machine(config);
       machinesToCleanup.push(machine);
 
-      await machine.start();
+      (await machine.start()).unwrap();
       expect(machine.isRunning()).toBe(true);
 
-      await machine.stop();
+      (await machine.stop()).unwrap();
       expect(machine.isRunning()).toBe(false);
     });
 
@@ -167,16 +167,16 @@ describe("Firecracker Integration Tests", () => {
       const machine = new Machine(config);
       machinesToCleanup.push(machine);
 
-      await machine.start();
+      (await machine.start()).unwrap();
 
       // Pause
-      await machine.pause();
-      const pausedInfo = await machine.getInstanceInfo();
+      (await machine.pause()).unwrap();
+      const pausedInfo = (await machine.getInstanceInfo()).unwrap();
       expect(pausedInfo.state).toBe("Paused");
 
       // Resume
-      await machine.resume();
-      const resumedInfo = await machine.getInstanceInfo();
+      (await machine.resume()).unwrap();
+      const resumedInfo = (await machine.getInstanceInfo()).unwrap();
       expect(resumedInfo.state).toBe("Running");
     });
 
@@ -187,10 +187,10 @@ describe("Firecracker Integration Tests", () => {
       const machine = new Machine(config);
       machinesToCleanup.push(machine);
 
-      await machine.start();
+      (await machine.start()).unwrap();
 
       // Graceful shutdown with timeout
-      await machine.shutdown(5000);
+      (await machine.shutdown(5000)).unwrap();
 
       expect(machine.isRunning()).toBe(false);
     });
@@ -202,9 +202,9 @@ describe("Firecracker Integration Tests", () => {
       const machine = new Machine(config);
       machinesToCleanup.push(machine);
 
-      await machine.start();
+      (await machine.start()).unwrap();
 
-      const info = await machine.getInfo();
+      const info = (await machine.getInfo()).unwrap();
       expect(info.id).toBeDefined();
       expect(info.status).toBe("running");
       expect(info.pid).not.toBeNull();
@@ -220,9 +220,9 @@ describe("Firecracker Integration Tests", () => {
       const machine = new Machine(config);
       machinesToCleanup.push(machine);
 
-      await machine.start();
+      (await machine.start()).unwrap();
 
-      const info = await machine.getInstanceInfo();
+      const info = (await machine.getInstanceInfo()).unwrap();
       expect(info.state).toBe("Running");
     });
 
@@ -234,9 +234,9 @@ describe("Firecracker Integration Tests", () => {
       const machine = new Machine(config);
       machinesToCleanup.push(machine);
 
-      await machine.start();
+      (await machine.start()).unwrap();
 
-      const info = await machine.getInstanceInfo();
+      const info = (await machine.getInstanceInfo()).unwrap();
       expect(info.state).toBe("Running");
     });
   });
@@ -256,10 +256,10 @@ describe("Firecracker Integration Tests", () => {
       const machine = new Machine(config);
       machinesToCleanup.push(machine);
 
-      await machine.start();
+      (await machine.start()).unwrap();
 
       // This requires a vsock agent running in the VM
-      const result = await machine.exec(["echo", "hello"]);
+      const result = (await machine.exec(["echo", "hello"])).unwrap();
       expect(result.exit_code).toBe(0);
       expect(result.stdout).toContain("hello");
     });
@@ -284,7 +284,7 @@ describe("Firecracker Integration Tests", () => {
       // Verify all are running
       for (const machine of machines) {
         expect(machine.isRunning()).toBe(true);
-        const info = await machine.getInstanceInfo();
+        const info = (await machine.getInstanceInfo()).unwrap();
         expect(info.state).toBe("Running");
       }
 

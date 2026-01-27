@@ -5,5 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "bun run index.ts"
+  },
+  "dependencies": {
+    "better-result": "^2.5.2"
   }
 }

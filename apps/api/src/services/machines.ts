@@ -564,7 +564,10 @@ export class MachineService {
         const runtime = factory.createFromMachine(machineRecord);
 
         // Start the runtime (spawns actual process)
-        await runtime.start();
+        const startResult = await runtime.start();
+        if (startResult.isErr()) {
+          throw startResult.error;
+        }
 
         // Get the PID
         const pid = runtime.getPid();
@@ -617,21 +620,13 @@ export class MachineService {
     const runtime = runtimeManager.get(id);
 
     if (runtime) {
-      // Graceful shutdown with 3 second timeout - catch errors but don't fail
-      const shutdownResult = await Result.tryPromise({
-        try: async () => {
-          await runtime.shutdown(3000);
-        },
-        catch: (error) => error,
-      });
+      // Graceful shutdown with 3 second timeout
+      const shutdownResult = await runtime.shutdown(3000);
 
       if (shutdownResult.isErr()) {
-        const message = shutdownResult.error instanceof Error
-          ? shutdownResult.error.message
-          : String(shutdownResult.error);
         this.logger?.error("Error during shutdown, forcing stop", {
           machineId: id,
-          error: message,
+          error: shutdownResult.error.message,
         });
       }
 

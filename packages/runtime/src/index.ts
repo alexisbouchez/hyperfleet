@@ -1,3 +1,5 @@
+import { Result } from "better-result";
+
 /**
  * @hyperfleet/runtime
  *
@@ -139,32 +141,32 @@ export interface Runtime {
   /**
    * Start the runtime instance
    */
-  start(): Promise<void>;
+  start(): Promise<Result<void, Error>>;
 
   /**
    * Stop the runtime instance
    */
-  stop(): Promise<void>;
+  stop(): Promise<Result<void, Error>>;
 
   /**
    * Pause the runtime instance (if supported)
    */
-  pause(): Promise<void>;
+  pause(): Promise<Result<void, Error>>;
 
   /**
    * Resume a paused runtime instance
    */
-  resume(): Promise<void>;
+  resume(): Promise<Result<void, Error>>;
 
   /**
    * Graceful shutdown with timeout, then force kill
    */
-  shutdown(timeoutMs?: number): Promise<void>;
+  shutdown(timeoutMs?: number): Promise<Result<void, Error>>;
 
   /**
    * Restart the runtime instance
    */
-  restart(timeoutSeconds?: number): Promise<void>;
+  restart(timeoutSeconds?: number): Promise<Result<void, Error>>;
 
   /**
    * Check if the runtime is currently running
@@ -179,23 +181,23 @@ export interface Runtime {
   /**
    * Get runtime instance information
    */
-  getInfo(): Promise<RuntimeInfo>;
+  getInfo(): Promise<Result<RuntimeInfo, Error>>;
 
   /**
    * Execute a command in the runtime
    */
-  exec(cmd: string[], timeoutMs?: number): Promise<ExecResult>;
+  exec(cmd: string[], timeoutMs?: number): Promise<Result<ExecResult, Error>>;
 
   /**
    * Wait for the runtime to exit
    */
-  wait(): Promise<number>;
+  wait(): Promise<Result<number, Error>>;
 }
 
 /**
  * Handler function type for runtime lifecycle
  */
-export type RuntimeHandler<T extends Runtime = Runtime> = (runtime: T) => Promise<void>;
+export type RuntimeHandler<T extends Runtime = Runtime> = (runtime: T) => Promise<Result<void, Error>>;
 
 /**
  * Handler list for managing ordered handler chains
@@ -237,13 +239,17 @@ export class HandlerList<T extends Runtime = Runtime> {
     return this;
   }
 
-  async run(runtime: T): Promise<void> {
+  async run(runtime: T): Promise<Result<void, Error>> {
     for (const name of this.order) {
       const handler = this.handlers.get(name);
       if (handler) {
-        await handler(runtime);
+        const result = await handler(runtime);
+        if (result.isErr()) {
+          return result;
+        }
       }
     }
+    return Result.ok(undefined);
   }
 
   list(): string[] {
